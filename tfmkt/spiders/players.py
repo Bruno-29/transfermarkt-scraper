@@ -4,6 +4,7 @@ from scrapy.shell import inspect_response # required for debugging
 from urllib.parse import unquote, urlparse
 import re
 import json
+import scrapy
 
 class PlayersSpider(BaseSpider):
   name = 'players'
@@ -131,9 +132,6 @@ class PlayersSpider(BaseSpider):
         )
 
 
-    # parse transfer history
-    attributes['transfer_history'] = self.parse_transfer_history(response)
-
     attributes['code'] = unquote(urlparse(base["href"]).path.split("/")[1])
 
     # --- ON LOAN FROM ---
@@ -158,10 +156,29 @@ class PlayersSpider(BaseSpider):
     if contract_there_expires:
         attributes['contract_there_expires'] = contract_there_expires.strip()
 
-    yield {
-      **base,
-      **attributes
-    }
+    # ---- 🚀  NEW: hit the JSON endpoint instead of HTML ----
+    # 1) keep the attributes we already parsed
+    player_item = {**base, **attributes}
+
+    # 2) extract the numeric player-id from the profile URL
+    player_id = re.search(r"/spieler/(\d+)", response.url).group(1)
+    api_url   = f"https://www.transfermarkt.com/ceapi/transferHistory/list/{player_id}"
+    
+    # 3) fire the API request; pass the partial item forward
+    self.logger.debug("→ API call   %s", api_url)      
+
+    # 3) fire the API request; pass the partial item forward
+    yield scrapy.Request(
+        api_url,
+        headers={
+            "x-requested-with": "XMLHttpRequest",
+            "referer": response.url
+        },
+        callback=self.parse_transfer_api,
+        cb_kwargs={"player": player_item},
+        dont_filter=True,
+    )
+
 
   def parse_transfer_history(self, response: Response):
     transfers = []
@@ -243,3 +260,24 @@ class PlayersSpider(BaseSpider):
     except Exception as err:
       self.logger.warning("Failed to scrape market value history from %s", response.url)
       return None
+
+
+    # ──────────────────────────────────────────────────────────
+  # grabs the JSON and finishes the item
+  def parse_transfer_api(self, response: Response, player: dict):
+      self.logger.debug("← API status %s for %s",
+                        response.status, response.url)  
+      try:
+          data = json.loads(response.text)
+          player["transfer_history"]     = data["transfers"]
+          player["transfer_fee_sum"]     = data.get("formattedFeeSum")
+          self.logger.debug("Fetched %d transfers for %s",
+                            len(player['transfer_history']),
+                            player.get('code'))
+      except Exception as exc:
+          self.logger.warning("Could not parse transfer API for %s – %s",
+                              response.url, exc)
+          player["transfer_history"] = []
+
+      # finally emit the complete player record
+      yield player
