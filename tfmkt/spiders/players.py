@@ -167,87 +167,54 @@ class PlayersSpider(BaseSpider):
     """
     Parse player's transfer history from the transfer history table
     """
-    try:
-      # Find the transfer history grid
-      transfer_grid = response.xpath("//div[@class='grid tm-player-transfer-history-grid']")
-      
-      if not transfer_grid:
-        self.logger.debug("No transfer history grid found for %s", response.url)
-        return []
-      
-      transfers = []
-      
-      # Get all season cells (these mark the start of each transfer row)
-      season_cells = transfer_grid.xpath(".//div[contains(@class, 'tm-player-transfer-history-grid__season')]")
-      
-      for season_cell in season_cells:
-        # Season
-        season = self.safe_strip(season_cell.xpath(".//text()").get())
+    transfers = []
+
+    # Select all transfer rows
+    rows = response.xpath("//div[@class='grid tm-player-transfer-history-grid']")
+    
+    for row in rows:
+        cells = row.xpath("./div")
+        if len(cells) < 6:  # Ensure all expected cells are present
+            continue
         
-        # Find the next sibling cells in order: date, old-club, new-club, market-value, fee
-        current_cell = season_cell
+        season = cells[0].xpath(".//text()").get(default='').strip()
+        date = cells[1].xpath(".//text()").get(default='').strip()
         
-        # Date cell (next sibling)
-        date_cell = current_cell.xpath("following-sibling::div[contains(@class, 'tm-player-transfer-history-grid__date')][1]")
-        date = self.safe_strip(date_cell.xpath(".//text()").get()) if date_cell else None
+        left_club_href = cells[2].xpath(".//a/@href").get()
+        left_club_name = cells[2].xpath(".//a/text()").get(default='').strip()
         
-        # Left club cell (old-club)
-        left_cell = current_cell.xpath("following-sibling::div[contains(@class, 'tm-player-transfer-history-grid__old-club')][1]")
-        left_club = {
-          'href': left_cell.xpath(".//a/@href").get() if left_cell else None,
-          'name': self.safe_strip(left_cell.xpath(".//a/text()").get()) if left_cell else None
-        }
+        joined_club_href = cells[3].xpath(".//a/@href").get()
+        joined_club_name = cells[3].xpath(".//a/text()").get(default='').strip()
         
-        # Joined club cell (new-club)
-        joined_cell = current_cell.xpath("following-sibling::div[contains(@class, 'tm-player-transfer-history-grid__new-club')][1]")
-        joined_club = {
-          'href': joined_cell.xpath(".//a/@href").get() if joined_cell else None,
-          'name': self.safe_strip(joined_cell.xpath(".//a/text()").get()) if joined_cell else None
-        }
+        market_value = cells[4].xpath(".//text()").get(default='').strip()
         
-        # Market Value cell
-        mv_cell = current_cell.xpath("following-sibling::div[contains(@class, 'tm-player-transfer-history-grid__market-value')][1]")
-        market_value = self.safe_strip(mv_cell.xpath(".//text()").get()) if mv_cell else None
-        
-        # Fee cell - this contains the transfer link with ID
-        fee_cell = current_cell.xpath("following-sibling::div[contains(@class, 'tm-player-transfer-history-grid__fee')][1]")
-        fee = None
-        transfer_link = None
+        fee = cells[5].xpath(".//text()").get(default='').strip()
+        transfer_link = cells[5].xpath(".//a/@href").get()
         transfer_id = None
-        
-        if fee_cell:
-          # Get the transfer link from the fee cell
-          transfer_link = fee_cell.xpath(".//a[contains(@class, 'tm-player-transfer-history-grid__link')]/@href").get()
-          
-          # Extract transfer ID from the href
-          if transfer_link:
-            # From your HTML: href="/everson/transfers/spieler/186032/transfer_id/3056873"
+        if transfer_link:
             transfer_id_match = re.search(r'/transfer_id/(\d+)', transfer_link)
-            if transfer_id_match:
-              transfer_id = transfer_id_match.group(1)
-          
-          # Get fee text (could be in the link or as plain text)
-          fee_text = fee_cell.xpath(".//a/text()").get() or fee_cell.xpath(".//text()").get()
-          fee = self.safe_strip(fee_text) if fee_text else None
-        
-        # Only add transfer if we have meaningful data
-        if season or date or left_club['href'] or joined_club['href']:
-          transfers.append({
+            transfer_id = transfer_id_match.group(1) if transfer_id_match else None
+
+        transfers.append({
             'season': season,
             'date': date,
-            'left_club': left_club,
-            'joined_club': joined_club,
+            'left_club': {
+                'href': left_club_href,
+                'name': left_club_name
+            },
+            'joined_club': {
+                'href': joined_club_href,
+                'name': joined_club_name
+            },
             'market_value': market_value,
             'fee': fee,
             'transfer_id': transfer_id,
             'transfer_href': transfer_link
-          })
-      
-      return transfers
-      
-    except Exception as err:
-      self.logger.warning("Failed to scrape transfer history from %s: %s", response.url, str(err))
-      return []
+        })
+
+    return transfers
+
+
 
   def parse_market_history(self, response: Response):
     """
