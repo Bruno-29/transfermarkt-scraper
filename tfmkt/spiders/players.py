@@ -164,38 +164,47 @@ class PlayersSpider(BaseSpider):
     }
 
   def parse_transfer_history(self, response: Response):
-    """
-    Parse player's transfer history from the transfer history table
-    """
     transfers = []
 
-    # Select all transfer rows
-    rows = response.xpath("//div[@class='grid tm-player-transfer-history-grid']")
-    
-    for row in rows:
-        cells = row.xpath("./div")
-        if len(cells) < 6:  # Ensure all expected cells are present
+    # Adjusted XPath to explicitly select rows within the custom element <tm-transfer-history>
+    transfer_rows = response.xpath("//tm-transfer-history//div[contains(@class, 'tm-player-transfer-history-grid') and not(contains(@class, 'heading'))]")
+
+    if not transfer_rows:
+        self.logger.debug("No transfer rows found within custom element at URL: %s", response.url)
+
+    for idx, row in enumerate(transfer_rows):
+        self.logger.debug("Processing transfer row %d", idx + 1)
+        cells = row.xpath(".//div[contains(@class, 'grid__cell')]")
+
+        if len(cells) < 6:
+            self.logger.debug("Skipping row %d due to insufficient cells: found %d cells", idx + 1, len(cells))
             continue
-        
+
         season = cells[0].xpath(".//text()").get(default='').strip()
         date = cells[1].xpath(".//text()").get(default='').strip()
-        
+
         left_club_href = cells[2].xpath(".//a/@href").get()
         left_club_name = cells[2].xpath(".//a/text()").get(default='').strip()
-        
+
         joined_club_href = cells[3].xpath(".//a/@href").get()
         joined_club_name = cells[3].xpath(".//a/text()").get(default='').strip()
-        
+
         market_value = cells[4].xpath(".//text()").get(default='').strip()
-        
+
         fee = cells[5].xpath(".//text()").get(default='').strip()
         transfer_link = cells[5].xpath(".//a/@href").get()
+
         transfer_id = None
         if transfer_link:
-            transfer_id_match = re.search(r'/transfer_id/(\d+)', transfer_link)
-            transfer_id = transfer_id_match.group(1) if transfer_id_match else None
+            match = re.search(r'/transfer_id/(\d+)', transfer_link)
+            transfer_id = match.group(1) if match else None
 
-        transfers.append({
+        self.logger.debug(
+            "Row %d data: Season=%s, Date=%s, LeftClub=%s, JoinedClub=%s, MarketValue=%s, Fee=%s, TransferID=%s",
+            idx + 1, season, date, left_club_name, joined_club_name, market_value, fee, transfer_id
+        )
+
+        transfer_entry = {
             'season': season,
             'date': date,
             'left_club': {
@@ -210,9 +219,13 @@ class PlayersSpider(BaseSpider):
             'fee': fee,
             'transfer_id': transfer_id,
             'transfer_href': transfer_link
-        })
+        }
 
+        transfers.append(transfer_entry)
+
+    self.logger.debug("Total transfers parsed: %d", len(transfers))
     return transfers
+
 
 
 
