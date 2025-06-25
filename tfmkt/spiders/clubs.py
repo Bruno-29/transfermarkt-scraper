@@ -49,8 +49,8 @@ class ClubsSpider(BaseSpider):
                         'parent': parent  # parent is the competition item (which should already have correct competition_code, etc.)
                     }
                 }
-
-                yield response.follow(club_href, self.parse_details, cb_kwargs=cb_kwargs)
+                squad_url = club_href.replace("/startseite/", "/kader/") + "/plus/1"
+                yield response.follow(squad_url, self.parse_details, cb_kwargs=cb_kwargs)
 
     def parse_details(self, response, base):
         """
@@ -61,6 +61,7 @@ class ClubsSpider(BaseSpider):
         @cb_kwargs {"base": {"href": "some_href/path/to/code", "type": "club", "parent": {}}}
         @scrapes href type parent
         """
+        safe = self.safe_strip
         attributes = {}
 
         # Extract market value from the "dataMarktwert" section
@@ -115,5 +116,92 @@ class ClubsSpider(BaseSpider):
         for key, value in attributes.items():
             if isinstance(value, str):
                 attributes[key] = value.strip()
+        
+        # --- after collecting attributes ------------------------------
+    
+        seen_player_ids: set[int] = set()          # <- de-duplicate whole table
 
-        yield {**base, **attributes}
+        def parse_player_row(tr):
+            link = tr.css("td.posrela a::attr(href)").get()
+            if not link:                       # header / empty spacer row
+                return None
+
+            m_id = re.search(r"/spieler/(\d+)", link)
+            if not m_id:
+                return None
+            pid = int(m_id.group(1))
+
+            if pid in seen_player_ids:         # icon-row duplicate → skip
+                return None
+            seen_player_ids.add(pid)
+
+            tds = tr.css("td")                 # list of *all* cells
+            # ------------------------------------------------------------------
+            # fixed columns
+            # ------------------------------------------------------------------
+            number   = safe(tds[0].css("div.rn_nummer::text").get())
+            name     = safe(tr.css("td.posrela a::text").get())
+            position = safe(tr.css("td.posrela tr:nth-child(2) td::text").get())
+
+            # ------------------------------------------------------------------
+            # variable-offset columns
+            # after the posrela cell there are either
+            #   dob-age | [icon?]nat | height | foot | joined | from | contract | value
+            # so:  len(tds) == 10  …icon missing
+            #      len(tds) == 11  …icon present  (extra td right after nat flags)
+            # We calculate the offset once and index from the *end* for stability.
+            # ------------------------------------------------------------------
+            
+            self.logger.debug("PAY ATTENTION TO THIS: %s", len(tds))        
+
+            dob_age_td       = tds[-8]                          # same in both cases
+            nat_td           = tds[-7]                          # flags td
+            height_td        = tds[-6]
+            foot_td          = tds[-5]
+            joined_td        = tds[-4]
+            signed_from_td   = tds[-3]
+            contract_td      = tds[-2]
+            value_td         = tds[-1]
+
+            dob_age = safe(dob_age_td.xpath("normalize-space()").get())
+            dob, age = None, None
+            if dob_age:
+                dob, _, rest = dob_age.partition("(")
+                dob = safe(dob)
+                age = int(rest.rstrip(")")) if rest.rstrip(")").isdigit() else None
+
+            nat = ", ".join(
+                safe(img.attrib.get("title"))
+                for img in nat_td.css("img[title]")
+                if safe(img.attrib.get("title"))
+            ) or None
+
+            return {
+                "player_id"        : pid,
+                "href"             : link,
+                "number"           : None if number in {"", "-"} else number,
+                "name"             : name,
+                "position"         : position,
+                "date_of_birth"    : dob,
+                "age"              : age,
+                "nationality"      : nat,
+                "height"           : safe(height_td.xpath("text()").get()),
+                "foot"             : safe(foot_td.xpath("text()").get()),
+                "joined"           : safe(joined_td.xpath("text()").get()),
+                "signed_from_href" : signed_from_td.css("a::attr(href)").get(),
+                "signed_from_name" : safe(signed_from_td.css("a::attr(title)").get()),
+                "contract_expires" : safe(contract_td.xpath("text()").get()),
+                "market_value"     : safe(value_td.css("a::text").get()),
+            }
+
+        # ──────────────────────────────────────────────────────────────
+        # collect the rows (inside parse_details, replacing previous loop)
+        # ──────────────────────────────────────────────────────────────
+        players = [
+            row for tr in response.css("div.responsive-table table.items tbody tr")
+            if (row := parse_player_row(tr))
+        ]
+
+        club_item = {**base, **attributes, "players": players}
+        self.logger.debug("📦 %s", club_item)
+        yield club_item
