@@ -123,8 +123,13 @@ class ClubsSpider(BaseSpider):
 
         def parse_player_row(tr):
             link = tr.css("td.posrela a::attr(href)").get()
-            if not link:                       # header / empty spacer row
+            if not link:                      # header / spacer
                 return None
+
+            tds = tr.css("> td")
+            if len(tds) < 10:                 # ← 1)  icon-only row → skip
+                return None
+
 
             m_id = re.search(r"/spieler/(\d+)", link)
             if not m_id:
