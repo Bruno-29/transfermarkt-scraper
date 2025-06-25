@@ -122,8 +122,9 @@ class ClubsSpider(BaseSpider):
         seen_player_ids: set[int] = set()          # <- de-duplicate whole table
 
         def parse_player_row(tr):
-            link = tr.css("td.posrela a::attr(href)").get()
-            if not link:                      # header / spacer
+            
+            link = tr.css("td.posrela a[href*='/profil/spieler/']::attr(href)").get()
+            if not link:
                 return None
 
             tds = tr.css("td")
