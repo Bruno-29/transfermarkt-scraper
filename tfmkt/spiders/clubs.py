@@ -126,7 +126,7 @@ class ClubsSpider(BaseSpider):
             if not link:                      # header / spacer
                 return None
 
-            tds = tr.css("> td")
+            tds = tr.css("td")
             if len(tds) < 10:                 # ← 1)  icon-only row → skip
                 return None
 
