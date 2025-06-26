@@ -8,6 +8,26 @@ import json
 class PlayersSpider(BaseSpider):
   name = 'players'
 
+  def _extract_date_of_birth(self, response):
+    """Safely extract date of birth from birth date element."""
+    birth_date_text = response.xpath("//span[@itemprop='birthDate']/text()").get()
+    if birth_date_text:
+      birth_date_text = birth_date_text.strip()
+      if " (" in birth_date_text:
+        return birth_date_text.split(" (")[0]
+      return birth_date_text
+    return None
+
+  def _extract_age(self, response):
+    """Safely extract age from birth date element."""
+    birth_date_text = response.xpath("//span[@itemprop='birthDate']/text()").get()
+    if birth_date_text:
+      birth_date_text = birth_date_text.strip()
+      if "(" in birth_date_text and ")" in birth_date_text:
+        age_part = birth_date_text.split('(')[-1].split(')')[0]
+        return age_part
+    return None
+
   def parse(self, response, parent):
       """Parse clubs's page to collect all player's urls.
 
@@ -67,12 +87,12 @@ class PlayersSpider(BaseSpider):
     attributes["number"] = self.safe_strip(name_element.xpath("span/text()").get())
 
     attributes['name_in_home_country'] = response.xpath("//span[text()='Name in home country:']/following::span[1]/text()").get()
-    attributes['date_of_birth'] = response.xpath("//span[@itemprop='birthDate']/text()").get().strip().split(" (")[0]
+    attributes['date_of_birth'] = self._extract_date_of_birth(response)
     attributes['place_of_birth'] = {
       'country': response.xpath("//span[text()='Place of birth:']/following::span[1]/span/img/@title").get(),
       'city': response.xpath("//span[text()='Place of birth:']/following::span[1]/span/text()").get()
     }
-    attributes['age'] = response.xpath("//span[@itemprop='birthDate']/text()").get().strip().split('(')[-1].split(')')[0]
+    attributes['age'] = self._extract_age(response)
     attributes['height'] = response.xpath("//span[text()='Height:']/following::span[1]/text()").get()
     attributes['citizenship'] = response.xpath("//span[text()='Citizenship:']/following::span[1]/img/@title").get()
     attributes['position'] = self.safe_strip(response.xpath("//span[text()='Position:']/following::span[1]/text()").get())
