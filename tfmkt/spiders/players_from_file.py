@@ -82,14 +82,16 @@ class PlayersFromFileSpider(BaseSpider):
     attributes['day_of_last_contract_extension'] = response.xpath("//span[text()='Date of last contract extension:']/following::span[1]/text()").get()
     attributes['outfitter'] = response.xpath("//span[text()='Outfitter:']/following::span[1]/text()").get()
 
-    # current_market_value_text = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__current-value']/text()").get())
-    # current_market_value_link = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__current-value']/a/text()").get())
-    
     # Get the meta description content
     meta_description = self.safe_strip(response.xpath("//meta[@name='description']/@content").get())
-    
-    # Use regex to extract the market value (e.g., €25k, €25m)
-    check_match = re.search(r'Market value: (\€[\d\.]+[km]?)', meta_description)
+
+    # Use regex to extract the market value (e.g., €25k, €25m) only when `meta_description` contains text
+    market_value = None  # default if nothing can be parsed
+    if meta_description:
+      check_match = re.search(r'Market value: (\€[\d\.]+[km]?)', meta_description)
+    else:
+      check_match = None
+
     if check_match:
         market_value_text = check_match.group(1)  # e.g., '€25k'
         
@@ -103,10 +105,9 @@ class PlayersFromFileSpider(BaseSpider):
         elif 'm' in market_value_text:
             market_value = float(market_value_text.replace('m', '')) * 1000000
         
-        attributes['current_market_value'] = market_value
-    else:
-        attributes['current_market_value'] = None
-    
+        # `market_value` already computed above
+
+    attributes['current_market_value'] = market_value
     attributes['highest_market_value'] = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__max-value']/text()").get())
 
     social_media_value_node = response.xpath("//span[text()='Social-Media:']/following::span[1]")
