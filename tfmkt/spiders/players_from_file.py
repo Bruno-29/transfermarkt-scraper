@@ -46,7 +46,7 @@ class PlayersFromFileSpider(BaseSpider):
 
     # parse 'PLAYER DATA' section
 
-    attributes = {"type": "player"}
+    attributes = {"type": "player", "href": parent.get('href')}
     base = parent  # In this spider, parent contains the base data including href
 
     name_element = response.xpath("//h1[@class='data-header__headline-wrapper']")
