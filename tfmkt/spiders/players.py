@@ -170,11 +170,18 @@ class PlayersSpider(BaseSpider):
     if contract_option:
         attributes['contract_option'] = contract_option.strip()
 
-      # --- CONTRACT OPTION ---
+    # --- CONTRACT THERE EXPIRES ---
     attributes['contract_there_expires'] = None
-    contract_there_expires = response.xpath("//span[text()='Contract there expires:']/following::span[1]//text()").get()
-    if contract_there_expires:
-        attributes['contract_there_expires'] = contract_there_expires.strip()
+
+    contract_there_expires = response.xpath(
+        "//span[text()='Contract there expires:']/following::span[1]//text()"
+    ).get()
+
+    if contract_there_expires is not None:
+        cleaned = contract_there_expires.strip()
+        # Transfermarkt denotes "no data" with a dash; convert it to None
+        if cleaned and cleaned != "-":
+            attributes['contract_there_expires'] = cleaned
 
     yield {
       **base,
