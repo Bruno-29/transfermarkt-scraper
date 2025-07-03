@@ -31,26 +31,47 @@ class ClubsSpider(BaseSpider):
         teams_tables = [table for table in page_tables if is_teams_table(table)]
         self.logger.info("Found %d responsive-table(s) on %s", len(teams_tables), response.url)
 
-        # Loop over each teams table (if more than one exists)
+        # --- gather all rows first -------------------------------------------------
+        rows_info = []  # (row, href, season_id)
         for table in teams_tables:
             for row in table.css('tbody tr'):
                 href = extract_team_href(row)
                 if not href:
                     continue
 
-                # DO NOT strip out the season id. Use the link as provided (e.g. it includes /saison_id/2024)
-                # This preserves the correct season.
-                club_href = href  
+                m_season = re.search(r"/saison_id/(\d+)", href)
+                season_id = int(m_season.group(1)) if m_season else None
+                rows_info.append((href, season_id))
 
-                cb_kwargs = {
-                    'base': {
-                        'type': 'club',
-                        'href': club_href,
-                        'parent': parent  # parent is the competition item (which should already have correct competition_code, etc.)
-                    }
+        # Determine which season we want to keep
+        if hasattr(self, "season") and getattr(self, "season", None) is not None:
+            # The user explicitly provided a season via -a season=YYYY
+            target_season = int(self.season)
+        else:
+            # Auto-detect the *latest* season present in the page (max saison_id)
+            available_seasons = [sid for _href, sid in rows_info if sid is not None]
+            target_season = max(available_seasons) if available_seasons else None
+
+        self.logger.debug("Target season for competition %s → %s", response.url, target_season)
+
+        # Now emit requests only for rows whose season matches target_season
+        for href, season_id in rows_info:
+            if target_season is not None and season_id != target_season:
+                # Skip older seasons to avoid duplicates
+                continue
+
+            club_href = href  # keep the exact link (includes correct /saison_id/)
+
+            cb_kwargs = {
+                'base': {
+                    'type': 'club',
+                    'href': club_href,
+                    'parent': parent
                 }
-                squad_url = club_href.replace("/startseite/", "/kader/") + "/plus/1"
-                yield response.follow(squad_url, self.parse_details, cb_kwargs=cb_kwargs)
+            }
+
+            squad_url = club_href.replace("/startseite/", "/kader/") + "/plus/1"
+            yield response.follow(squad_url, self.parse_details, cb_kwargs=cb_kwargs)
 
     def parse_details(self, response, base):
         """
