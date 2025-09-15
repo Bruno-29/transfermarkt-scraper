@@ -28,6 +28,23 @@ class PlayersSpider(BaseSpider):
         return age_part
     return None
 
+  def _extract_date_of_death(self, response):
+    """Safely extract date of death when present; otherwise return None."""
+    death_date_text = response.xpath("//span[normalize-space(text())='Date of death:']/following::span[1]/text()").get()
+    if death_date_text:
+      death_date_text = death_date_text.strip()
+      if " (" in death_date_text:
+        return death_date_text.split(" (")[0]
+      return death_date_text
+    # Some profiles may use a different label
+    death_date_text_alt = response.xpath("//span[normalize-space(text())='Died on:']/following::span[1]/text()").get()
+    if death_date_text_alt:
+      death_date_text_alt = death_date_text_alt.strip()
+      if " (" in death_date_text_alt:
+        return death_date_text_alt.split(" (")[0]
+      return death_date_text_alt
+    return None
+
   def parse(self, response, parent):
       """Parse clubs's page to collect all player's urls.
 
@@ -105,9 +122,41 @@ class PlayersSpider(BaseSpider):
               response.xpath("//span[text()='Player agent:']/following::span[1]/span/text()").get()  # Case 3: agent name in <span> text without <a>
     }
     attributes['image_url'] = response.xpath("//img[@class='data-header__profile-image']/@src").get()
-    attributes['current_club'] = {
-      'href': response.xpath("//span[contains(text(),'Current club:')]/following::span[1]/a/@href").get()
-    }
+    # --- STATUS AND CURRENT CLUB ---
+    status = 'active'
+    date_of_death = self._extract_date_of_death(response)
+    if date_of_death:
+      status = 'deceased'
+      attributes['date_of_death'] = date_of_death
+
+    # Detect retired by href or label text when not deceased
+    if status == 'active':
+      # Deceased without explicit date: placeholder icon/text/slug in Current club
+      current_club_node = response.xpath("//span[normalize-space(text())='Current club:']/following::span[1]")
+      deceased_placeholder = False
+      if len(current_club_node) > 0:
+        icon_alt = current_club_node.xpath(".//img/@alt").get()
+        has_title_placeholder = current_club_node.xpath(".//a[@title='---']").get() is not None
+        has_text_placeholder = current_club_node.xpath(".//a[normalize-space(text())='---']").get() is not None
+        has_slug_placeholder = current_club_node.xpath(".//a[contains(@href,'/-tm/startseite/verein/')]").get() is not None
+        deceased_placeholder = (icon_alt == '---') or has_title_placeholder or has_text_placeholder or has_slug_placeholder
+      if deceased_placeholder:
+        status = 'deceased'
+
+    if status == 'active':
+      retired_href = response.xpath("//span[normalize-space(text())='Current club:']/following::span[1]//a[contains(@href,'/retired/')]/@href").get()
+      current_club_text = response.xpath("normalize-space(//span[normalize-space(text())='Current club:']/following::span[1])").get()
+      if retired_href or (current_club_text and 'retired' in current_club_text.lower()):
+        status = 'retired'
+
+    if status in ['retired', 'deceased']:
+      attributes['current_club'] = None
+    else:
+      club_href = response.xpath("(//span[normalize-space(text())='Current club:']/following::span[1]//a[@title and not(contains(@href,'/retired/'))]/@href)[1]").get()
+      attributes['current_club'] = {
+        'href': club_href
+      }
+    attributes['status'] = status
     attributes['foot'] = response.xpath("//span[text()='Foot:']/following::span[1]/text()").get()
     attributes['joined'] = response.xpath("//span[text()='Joined:']/following::span[1]/text()").get()
     attributes['contract_expires'] = self.safe_strip(response.xpath("//span[text()='Contract expires:']/following::span[1]/text()").get())
