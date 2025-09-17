@@ -95,6 +95,8 @@ class PlayersFromFileSpider(BaseSpider):
     if date_of_death:
       status = 'deceased'
       attributes['date_of_death'] = date_of_death
+    else:
+      attributes['date_of_death'] = None
 
     if status == 'active':
       # Deceased without explicit date: placeholder icon/text/slug in Current club

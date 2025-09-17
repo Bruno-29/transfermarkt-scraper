@@ -128,6 +128,8 @@ class PlayersSpider(BaseSpider):
     if date_of_death:
       status = 'deceased'
       attributes['date_of_death'] = date_of_death
+    else:
+      attributes['date_of_death'] = None
 
     # Detect retired by href or label text when not deceased
     if status == 'active':
