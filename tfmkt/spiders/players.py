@@ -151,7 +151,14 @@ class PlayersSpider(BaseSpider):
       if retired_href or (current_club_text and 'retired' in current_club_text.lower()):
         status = 'retired'
 
-    if status in ['retired', 'deceased']:
+    # Detect free agent (Without Club) only if not retired/deceased
+    if status == 'active':
+      free_agent_text = response.xpath("normalize-space(//span[normalize-space(text())='Current club:']/following::span[1])").get()
+      free_agent_href = response.xpath("//span[normalize-space(text())='Current club:']/following::span[1]//a/@href").get()
+      if (free_agent_text and 'without club' in free_agent_text.lower()) or (free_agent_href and ('/without-club/' in free_agent_href or '/vereinslos/' in free_agent_href)):
+        status = 'without_club'
+
+    if status in ['retired', 'deceased', 'without_club']:
       attributes['current_club'] = None
     else:
       club_href = response.xpath("(//span[normalize-space(text())='Current club:']/following::span[1]//a[@title and not(contains(@href,'/retired/'))]/@href)[1]").get()
@@ -171,28 +178,39 @@ class PlayersSpider(BaseSpider):
     # Get the meta description content
     meta_description = self.safe_strip(response.xpath("//meta[@name='description']/@content").get())
     
-    # Use regex to extract the market value for both formats:
-    # - "Market value: €..." and "market value is €..."
-    mv_match = re.search(r'(?:Market value:\\s*|market value is\\s*)(\\€[\\d\\.,]+[km]?)', meta_description or '', flags=re.IGNORECASE)
-    if mv_match:
-        market_value_text = mv_match.group(1)
+    # Use regex to extract the market value (e.g., €25k, €25m)
+    check_match = re.search(r'Market value: (\€[\d\.]+[km]?)', meta_description)
+    if check_match:
+        market_value_text = check_match.group(1)  # e.g., '€25k'
         
-        # Normalize number string
-        market_value_text = market_value_text.replace('€', '').replace(',', '').strip()
+        # Remove the Euro symbol
+        market_value_text = market_value_text.replace('€', '').strip()
         
         # Handle the suffix (k = thousand, m = million)
         if 'k' in market_value_text:
             market_value = float(market_value_text.replace('k', '')) * 1000
+            
         elif 'm' in market_value_text:
             market_value = float(market_value_text.replace('m', '')) * 1000000
-        else:
-            try:
-                market_value = float(market_value_text)
-            except Exception:
-                market_value = None
+        
         attributes['current_market_value'] = market_value
     else:
         attributes['current_market_value'] = None
+
+    # Free agent pages use: "market value is €...". Use a fallback only for free agents
+    if status == 'without_club' and attributes['current_market_value'] is None and meta_description:
+      mv_match = re.search(r'market value is\s*(\€[\d\.,]+[km]?)', meta_description, flags=re.IGNORECASE)
+      if mv_match:
+        mv_text = mv_match.group(1).replace('€', '').replace(',', '').strip()
+        if 'k' in mv_text:
+          attributes['current_market_value'] = float(mv_text.replace('k', '')) * 1000
+        elif 'm' in mv_text:
+          attributes['current_market_value'] = float(mv_text.replace('m', '')) * 1000000
+        else:
+          try:
+            attributes['current_market_value'] = float(mv_text)
+          except Exception:
+            attributes['current_market_value'] = None
     
     attributes['highest_market_value'] = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__max-value']/text()").get())
 
