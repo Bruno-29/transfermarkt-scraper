@@ -151,14 +151,7 @@ class PlayersSpider(BaseSpider):
       if retired_href or (current_club_text and 'retired' in current_club_text.lower()):
         status = 'retired'
 
-    # Detect free agent (Without Club) only if not retired/deceased
-    if status == 'active':
-      free_agent_text = response.xpath("normalize-space(//span[normalize-space(text())='Current club:']/following::span[1])").get()
-      free_agent_href = response.xpath("//span[normalize-space(text())='Current club:']/following::span[1]//a/@href").get()
-      if (free_agent_text and 'without club' in free_agent_text.lower()) or (free_agent_href and ('/without-club/' in free_agent_href or '/vereinslos/' in free_agent_href)):
-        status = 'without_club'
-
-    if status in ['retired', 'deceased', 'without_club']:
+    if status in ['retired', 'deceased']:
       attributes['current_club'] = None
     else:
       club_href = response.xpath("(//span[normalize-space(text())='Current club:']/following::span[1]//a[@title and not(contains(@href,'/retired/'))]/@href)[1]").get()
@@ -197,8 +190,9 @@ class PlayersSpider(BaseSpider):
     else:
         attributes['current_market_value'] = None
 
-    # Free agent pages use: "market value is €...". Use a fallback only for free agents
-    if status == 'without_club' and attributes['current_market_value'] is None and meta_description:
+    # Free agent (German path) pages often use: "market value is €..."
+    current_club_href_for_mv = attributes.get('current_club', {}).get('href') if isinstance(attributes.get('current_club'), dict) else None
+    if current_club_href_for_mv == '/vereinslos/startseite/verein/515' and attributes['current_market_value'] is None and meta_description:
       mv_match = re.search(r'market value is\s*(\€[\d\.,]+[km]?)', meta_description, flags=re.IGNORECASE)
       if mv_match:
         mv_text = mv_match.group(1).replace('€', '').replace(',', '').strip()
