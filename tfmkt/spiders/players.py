@@ -167,7 +167,7 @@ class PlayersSpider(BaseSpider):
 
     # current_market_value_text = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__current-value']/text()").get())
     # current_market_value_link = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__current-value']/a/text()").get())
-    
+    attributes['current_market_value'] = None
     # Get the meta description content
     meta_description = self.safe_strip(response.xpath("//meta[@name='description']/@content").get())
     
