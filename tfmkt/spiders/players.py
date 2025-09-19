@@ -205,6 +205,29 @@ class PlayersSpider(BaseSpider):
             attributes['current_market_value'] = float(mv_text)
           except Exception:
             attributes['current_market_value'] = None
+
+    # Fallback: read the value displayed in the header box if still None
+    if attributes['current_market_value'] is None:
+      header_mv_text = response.xpath("normalize-space(//div[contains(@class,'data-header__box--small')]//a[contains(@class,'data-header__market-value-wrapper')]/text()[1])").get()
+      header_unit = response.xpath("normalize-space(//div[contains(@class,'data-header__box--small')]//a[contains(@class,'data-header__market-value-wrapper')]//span[contains(@class,'waehrung')]/text())").get()
+      if header_mv_text:
+        # Example: '€18.00' with unit 'm' or '€100' with unit 'mil'
+        header_mv_text = header_mv_text.replace('€', '').strip()
+        header_mv_text = header_mv_text.replace('.', '').replace(',', '.') if header_unit and header_unit.lower() in ['mil', 'mio.', 'bn'] else header_mv_text
+        try:
+          base_value = float(header_mv_text)
+          unit = (header_unit or '').strip().lower()
+          if unit in ['m', 'mio', 'mio.', 'mil']:
+            attributes['current_market_value'] = base_value * 1_000_000
+          elif unit in ['k']:
+            attributes['current_market_value'] = base_value * 1_000
+          elif unit in ['bn', 'b']:
+            attributes['current_market_value'] = base_value * 1_000_000_000
+          else:
+            # If no unit (rare), assume raw euros
+            attributes['current_market_value'] = base_value
+        except Exception:
+          pass
     
     attributes['highest_market_value'] = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__max-value']/text()").get())
 
