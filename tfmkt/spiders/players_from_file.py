@@ -134,27 +134,22 @@ class PlayersFromFileSpider(BaseSpider):
     # Get the meta description content
     meta_description = self.safe_strip(response.xpath("//meta[@name='description']/@content").get())
 
-    # Use regex to extract the market value (e.g., €25k, €25m) only when `meta_description` contains text
-    market_value = None  # default if nothing can be parsed
-    if meta_description:
-      check_match = re.search(r'Market value: (\€[\d\.]+[km]?)', meta_description)
-    else:
-      check_match = None
-
-    if check_match:
-        market_value_text = check_match.group(1)  # e.g., '€25k'
-        
-        # Remove the Euro symbol
-        market_value_text = market_value_text.replace('€', '').strip()
-        
-        # Handle the suffix (k = thousand, m = million)
+    # Use regex to extract the market value for both formats:
+    # - "Market value: €..." and "market value is €..."
+    market_value = None
+    mv_match = re.search(r'(?:Market value:\\s*|market value is\\s*)(\\€[\\d\\.,]+[km]?)', meta_description or '', flags=re.IGNORECASE)
+    if mv_match:
+        market_value_text = mv_match.group(1)
+        market_value_text = market_value_text.replace('€', '').replace(',', '').strip()
         if 'k' in market_value_text:
             market_value = float(market_value_text.replace('k', '')) * 1000
-            
         elif 'm' in market_value_text:
             market_value = float(market_value_text.replace('m', '')) * 1000000
-        
-        # `market_value` already computed above
+        else:
+            try:
+                market_value = float(market_value_text)
+            except Exception:
+                market_value = None
 
     attributes['current_market_value'] = market_value
     attributes['highest_market_value'] = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__max-value']/text()").get())

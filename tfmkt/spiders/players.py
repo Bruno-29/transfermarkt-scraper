@@ -171,21 +171,25 @@ class PlayersSpider(BaseSpider):
     # Get the meta description content
     meta_description = self.safe_strip(response.xpath("//meta[@name='description']/@content").get())
     
-    # Use regex to extract the market value (e.g., €25k, €25m)
-    check_match = re.search(r'Market value: (\€[\d\.]+[km]?)', meta_description)
-    if check_match:
-        market_value_text = check_match.group(1)  # e.g., '€25k'
+    # Use regex to extract the market value for both formats:
+    # - "Market value: €..." and "market value is €..."
+    mv_match = re.search(r'(?:Market value:\\s*|market value is\\s*)(\\€[\\d\\.,]+[km]?)', meta_description or '', flags=re.IGNORECASE)
+    if mv_match:
+        market_value_text = mv_match.group(1)
         
-        # Remove the Euro symbol
-        market_value_text = market_value_text.replace('€', '').strip()
+        # Normalize number string
+        market_value_text = market_value_text.replace('€', '').replace(',', '').strip()
         
         # Handle the suffix (k = thousand, m = million)
         if 'k' in market_value_text:
             market_value = float(market_value_text.replace('k', '')) * 1000
-            
         elif 'm' in market_value_text:
             market_value = float(market_value_text.replace('m', '')) * 1000000
-        
+        else:
+            try:
+                market_value = float(market_value_text)
+            except Exception:
+                market_value = None
         attributes['current_market_value'] = market_value
     else:
         attributes['current_market_value'] = None
