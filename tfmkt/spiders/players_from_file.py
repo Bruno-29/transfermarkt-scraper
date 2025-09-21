@@ -131,27 +131,57 @@ class PlayersFromFileSpider(BaseSpider):
     attributes['day_of_last_contract_extension'] = response.xpath("//span[text()='Date of last contract extension:']/following::span[1]/text()").get()
     attributes['outfitter'] = response.xpath("//span[text()='Outfitter:']/following::span[1]/text()").get()
 
+    # current market value
+    attributes['current_market_value'] = None
     # Get the meta description content
     meta_description = self.safe_strip(response.xpath("//meta[@name='description']/@content").get())
 
-    # Use regex to extract the market value for both formats:
-    # - "Market value: €..." and "market value is €..."
-    market_value = None
-    mv_match = re.search(r'(?:Market value:\\s*|market value is\\s*)(\\€[\\d\\.,]+[km]?)', meta_description or '', flags=re.IGNORECASE)
-    if mv_match:
-        market_value_text = mv_match.group(1)
-        market_value_text = market_value_text.replace('€', '').replace(',', '').strip()
+    # Primary: "Market value: €..."
+    check_match = re.search(r'Market value: (\€[\d\.]+[km]?)', meta_description or '')
+    if check_match:
+        market_value_text = check_match.group(1)
+        market_value_text = market_value_text.replace('€', '').strip()
         if 'k' in market_value_text:
-            market_value = float(market_value_text.replace('k', '')) * 1000
+            attributes['current_market_value'] = float(market_value_text.replace('k', '')) * 1000
         elif 'm' in market_value_text:
-            market_value = float(market_value_text.replace('m', '')) * 1000000
-        else:
-            try:
-                market_value = float(market_value_text)
-            except Exception:
-                market_value = None
+            attributes['current_market_value'] = float(market_value_text.replace('m', '')) * 1000000
 
-    attributes['current_market_value'] = market_value
+    # Free agent (German path) pages often use: "market value is €..."
+    current_club_href_for_mv = attributes.get('current_club', {}).get('href') if isinstance(attributes.get('current_club'), dict) else None
+    if current_club_href_for_mv == '/vereinslos/startseite/verein/515' and attributes['current_market_value'] is None and meta_description:
+      mv_match = re.search(r'market value is\s*(\€[\d\.,]+[km]?)', meta_description, flags=re.IGNORECASE)
+      if mv_match:
+        mv_text = mv_match.group(1).replace('€', '').replace(',', '').strip()
+        if 'k' in mv_text:
+          attributes['current_market_value'] = float(mv_text.replace('k', '')) * 1000
+        elif 'm' in mv_text:
+          attributes['current_market_value'] = float(mv_text.replace('m', '')) * 1000000
+        else:
+          try:
+            attributes['current_market_value'] = float(mv_text)
+          except Exception:
+            attributes['current_market_value'] = None
+
+    # Fallback: read the value displayed in the header box if still None
+    if attributes['current_market_value'] is None:
+      header_mv_text = response.xpath("normalize-space(//div[contains(@class,'data-header__box--small')]//a[contains(@class,'data-header__market-value-wrapper')]/text()[1])").get()
+      header_unit = response.xpath("normalize-space(//div[contains(@class,'data-header__box--small')]//a[contains(@class,'data-header__market-value-wrapper')]//span[contains(@class,'waehrung')]/text())").get()
+      if header_mv_text:
+        header_mv_text = header_mv_text.replace('€', '').strip()
+        header_mv_text = header_mv_text.replace('.', '').replace(',', '.') if header_unit and header_unit.lower() in ['mil', 'mio.', 'bn'] else header_mv_text
+        try:
+          base_value = float(header_mv_text)
+          unit = (header_unit or '').strip().lower()
+          if unit in ['m', 'mio', 'mio.', 'mil']:
+            attributes['current_market_value'] = base_value * 1_000_000
+          elif unit in ['k']:
+            attributes['current_market_value'] = base_value * 1_000
+          elif unit in ['bn', 'b']:
+            attributes['current_market_value'] = base_value * 1_000_000_000
+          else:
+            attributes['current_market_value'] = base_value
+        except Exception:
+          pass
     attributes['highest_market_value'] = self.safe_strip(response.xpath("//div[@class='tm-player-market-value-development__max-value']/text()").get())
 
     social_media_value_node = response.xpath("//span[text()='Social-Media:']/following::span[1]")
