@@ -22,6 +22,19 @@ class ClubsByUrlSpider(ClubsSpider):
 
         # Call Base init last so that scrape_parents can use the fields above
         super().__init__(base_url=base_url, parents=parents)
+        try:
+            self.logger.info(
+                "clubs_by_url initialized: kind=%s, codes=%d, hrefs=%d",
+                self._kind,
+                len(self._input_codes),
+                len(self._input_hrefs)
+            )
+            if self._input_codes:
+                self.logger.debug("codes: %s", ",".join(self._input_codes))
+            if self._input_hrefs:
+                self.logger.debug("hrefs(raw): %s", ",".join(self._input_hrefs))
+        except Exception:
+            pass
 
     def _normalize_href(self, href: str) -> str:
         """Return a site-relative href beginning with '/'. Accepts absolute URLs too."""
@@ -29,13 +42,30 @@ class ClubsByUrlSpider(ClubsSpider):
             return href
         if href.startswith('http://') or href.startswith('https://'):
             parsed = urlparse(href)
-            return parsed.path.rstrip('/')
-        return href.rstrip('/')
+            normalized = parsed.path.rstrip('/')
+        else:
+            normalized = href.rstrip('/')
+        if normalized != href:
+            try:
+                self.logger.debug("normalize_href: %s -> %s", href, normalized)
+            except Exception:
+                pass
+        return normalized
 
     def _hrefs_from_codes(self, codes: List[str]) -> List[str]:
         base_segment = 'pokalwettbewerb' if self._kind == 'cup' else 'wettbewerb'
         # Prefer minimal canonical path that Transfermarkt accepts; slug is optional
-        return [f"/startseite/{base_segment}/{code}" for code in codes if code]
+        hrefs = [f"/startseite/{base_segment}/{code}" for code in codes if code]
+        try:
+            self.logger.info(
+                "Resolved %d code(s) to hrefs (kind=%s)",
+                len(hrefs),
+                self._kind
+            )
+            self.logger.debug("hrefs(from codes): %s", ",".join(hrefs))
+        except Exception:
+            pass
+        return hrefs
 
     def scrape_parents(self) -> List[Dict]:
         hrefs_from_codes = self._hrefs_from_codes(self._input_codes) if self._input_codes else []
@@ -44,7 +74,16 @@ class ClubsByUrlSpider(ClubsSpider):
 
         if not entry_hrefs:
             raise Exception("Please provide either 'codes' or 'hrefs' to clubs_by_url spider")
-
+        try:
+            self.logger.info(
+                "Prepared %d competition entrypoint(s) (codes=%d, hrefs=%d)",
+                len(entry_hrefs),
+                len(hrefs_from_codes),
+                len(normalized_hrefs)
+            )
+            self.logger.debug("entry_hrefs: %s", ",".join(entry_hrefs))
+        except Exception:
+            pass
         return [
             {
                 'type': 'competition',
@@ -61,6 +100,14 @@ class ClubsByUrlSpider(ClubsSpider):
         """
         # -- Begin: inline copy of ClubsSpider.parse_details with final cleanup --
         safe = self.safe_strip
+        try:
+            self.logger.info(
+                "Parsing club details: response_url=%s base_href=%s",
+                response.url,
+                base.get('href')
+            )
+        except Exception:
+            pass
         attributes = {}
 
         attributes['total_market_value'] = response.css('div.dataMarktwert a::text').get()
@@ -184,6 +231,15 @@ class ClubsByUrlSpider(ClubsSpider):
         ]
 
         club_item = {**base, **attributes, "players": players}
+        try:
+            self.logger.info(
+                "Club parsed: name=%s code=%s players=%d",
+                club_item.get('name'),
+                club_item.get('code'),
+                len(players)
+            )
+        except Exception:
+            pass
         # Drop any competition association
         if 'parent' in club_item:
             del club_item['parent']
