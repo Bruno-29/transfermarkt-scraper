@@ -7,6 +7,19 @@ from tfmkt.spiders.clubs import ClubsSpider
 
 
 class ClubsByUrlSpider(ClubsSpider):
+    """
+    Scrape club squad pages from given competition URLs or codes.
+
+    Key behaviors:
+    - For CUP competitions, transforms /startseite/... to the participants page /teilnehmer/...
+    - Collects club links from the competition page.
+    - Builds squad (roster) request URLs **including the slug** when available:
+        /{slug}/kader/verein/{club_id}/plus/1
+      If a slug cannot be parsed from the club href, uses:
+        /kader/verein/{club_id}/plus/1
+    - Does NOT retry without /plus/1.
+    - Drops any 'parent' field before yielding the club item.
+    """
     name = "clubs_by_url"
 
     def __init__(
@@ -19,23 +32,20 @@ class ClubsByUrlSpider(ClubsSpider):
         season: Optional[int] = None,
     ):
         """
-        Spider to scrape clubs from given competition URLs or codes, without
-        associating the resulting club items to any competition parent.
-
         Args
         ----
-        - codes: comma-separated competition codes (e.g. "CL,EL,ECLQ").
+        - codes: comma-separated competition codes (e.g. "CL,EL,UCOL").
         - hrefs: comma-separated competition href paths or absolute URLs.
         - kind: 'cup' (default, uses 'pokalwettbewerb') or 'league' (uses 'wettbewerb').
-        - season: optional integer season for participants and squad pages (e.g. 2025).
+        - season: optional integer season for *participants page only* (not used on club squad URLs).
         """
         self._input_codes = [c.strip() for c in codes.split(",")] if codes else []
         self._input_hrefs = [h.strip() for h in hrefs.split(",")] if hrefs else []
         self._kind = (kind or "cup").strip().lower()
         self.season = int(season) if season else None
 
-        # Base init (sets base_url, entrypoints via scrape_parents, etc.)
         super().__init__(base_url=base_url, parents=parents)
+
         try:
             self.logger.info(
                 "clubs_by_url initialized: kind=%s season=%s codes=%d hrefs=%d",
@@ -59,7 +69,7 @@ class ClubsByUrlSpider(ClubsSpider):
         """Return a site-relative href beginning with '/'. Accepts absolute URLs too."""
         if not href:
             return href
-        if href.startswith("http://") or href.startswith("https://"):
+        if href.startswith(("http://", "https://")):
             parsed = urlparse(href)
             normalized = parsed.path.rstrip("/")
         else:
@@ -73,7 +83,6 @@ class ClubsByUrlSpider(ClubsSpider):
 
     def _hrefs_from_codes(self, codes: List[str]) -> List[str]:
         base_segment = "pokalwettbewerb" if self._kind == "cup" else "wettbewerb"
-        # Minimal canonical path accepted by Transfermarkt; slug is optional
         hrefs = [f"/startseite/{base_segment}/{code}" for code in codes if code]
         try:
             self.logger.info(
@@ -107,13 +116,12 @@ class ClubsByUrlSpider(ClubsSpider):
         """
         Build the correct request URL for a competition entrypoint.
         For cups, navigate to the participants page; for leagues, ensure /plus/ variant.
-        Append saison_id when a season is provided.
+        Append saison_id when a season is provided (participants page only).
         """
         path = self._normalize_href(href)
         is_cup = self._kind == "cup" or ("/pokalwettbewerb/" in path)
 
         if is_cup:
-            # Transform to participants path for cups
             original_path = path
             if "/teilnehmer/" not in path:
                 if "/startseite/" in path:
@@ -123,12 +131,11 @@ class ClubsByUrlSpider(ClubsSpider):
                 elif "/pokalwettbewerb/" in path and "/teilnehmer/pokalwettbewerb/" not in path:
                     path = path.replace("/pokalwettbewerb/", "/teilnehmer/pokalwettbewerb/")
 
-            # Add saison_id if provided
+            # saison_id on participants is optional; include if provided
             try:
-                season_val = getattr(self, "season", None)
-                if season_val:
+                if self.season:
                     path = re.sub(r"/saison_id/\d+", "", path).rstrip("/")
-                    path = f"{path}/saison_id/{int(season_val)}"
+                    path = f"{path}/saison_id/{int(self.season)}"
             except Exception:
                 pass
 
@@ -169,27 +176,22 @@ class ClubsByUrlSpider(ClubsSpider):
 
     def parse(self, response, parent):
         """
-        Parse a competition entry page (participants for cups, 'plus' list for leagues),
-        collect club links, and schedule requests to the squad page where the players table lives.
+        Parse participants/list page, collect club /startseite/ links,
+        and request each **slugged** squad page /{slug}/kader/verein/{id}/plus/1.
         """
         try:
             self.logger.info("Parsing competition page: %s", response.url)
         except Exception:
             pass
 
-        # Primary selector: participants table rows -> club anchor
         club_links = response.css("table.items td.links.hauptlink a::attr(href)").getall()
-
-        # Fallback (league lists often use tooltip anchors)
         if not club_links:
             club_links = response.css("a.vereinprofil_tooltip::attr(href)").re(
                 r".*/startseite/verein/\d+"
             )
-
-        # Ultimate fallback: hidden IDs block (div.keys)
         if not club_links:
             ids = response.css("div.grid-view div.keys span::text").getall()
-            club_links = [f"/dummy-slug/startseite/verein/{vid}" for vid in ids]  # slugless but valid
+            club_links = [f"/dummy-slug/startseite/verein/{vid}" for vid in ids]
 
         seen = set()
         for href in club_links:
@@ -198,17 +200,24 @@ class ClubsByUrlSpider(ClubsSpider):
                 continue
             seen.add(href)
 
-            m = re.search(r"/verein/(\d+)", href)
-            club_id = m.group(1) if m else None
+            club_id = self._extract_club_id(href)
+            slug = self._extract_slug(href)
 
-            # Build robust squad URL; parse_details expects the classic players table
-            if club_id:
-                kader_path = self._club_kader_path(club_id)
-                request_url = f"{self.base_url}{kader_path}"
+            if not club_id:
+                try:
+                    self.logger.warning("Skip club without id: %s", href)
+                except Exception:
+                    pass
+                continue
+
+            # Build **one** roster URL (no retries, no saison_id)
+            if slug:
+                roster_path = f"/{slug}/kader/verein/{club_id}/plus/1"
             else:
-                request_url = f"{self.base_url}{href}"
+                roster_path = f"/kader/verein/{club_id}/plus/1"
 
-            base = {"type": "club", "href": href}  # keep original /startseite/ slugged href
+            request_url = f"{self.base_url}{roster_path}"
+            base = {"type": "club", "href": href}
             try:
                 self.logger.debug("Club request prepared: href=%s url=%s", href, request_url)
             except Exception:
@@ -220,25 +229,27 @@ class ClubsByUrlSpider(ClubsSpider):
                 cb_kwargs={"base": base},
             )
 
-    def _club_kader_path(self, club_id: str) -> str:
+    def _extract_club_id(self, href: str) -> Optional[str]:
+        m = re.search(r"/verein/(\d+)", href)
+        return m.group(1) if m else None
+
+    def _extract_slug(self, href: str) -> Optional[str]:
         """
-        Build the canonical squad page path for a club id and optional season, e.g.:
-        /kader/verein/631/saison_id/2025/plus/1
+        Expect typical club start page hrefs like:
+        /fc-chelsea/startseite/verein/631
+        Returns 'fc-chelsea' or None if not present.
         """
-        path = f"/kader/verein/{club_id}"
-        if self.season:
-            path += f"/saison_id/{self.season}"
-        return f"{path}/plus/1"
+        m = re.match(r"^/([^/]+)/startseite/verein/\d+(?:/.*)?$", href)
+        return m.group(1) if m else None
 
     # -------------------------
-    # Club & players parse (mostly your original)
+    # Club & players parse (same as your working logic)
     # -------------------------
 
     def parse_details(self, response, base):
         """
-        Override to remove competition association from the yielded club items.
-        Reuses the original ClubsSpider.parse_details implementation with a final
-        step that drops the 'parent' field.
+        Same fields as in your working ClubsSpider.parse_details, but we ensure
+        the yielded item has no 'parent' key to keep it competition-agnostic.
         """
         safe = self.safe_strip
         try:
@@ -251,8 +262,6 @@ class ClubsByUrlSpider(ClubsSpider):
             pass
 
         attributes: Dict[str, Optional[str]] = {}
-
-        # These club-level fields may or may not be present on the squad page; harmless if None
         attributes["total_market_value"] = response.css("div.dataMarktwert a::text").get()
 
         attributes["squad_size"] = safe(
@@ -293,7 +302,7 @@ class ClubsByUrlSpider(ClubsSpider):
         ).get()
         attributes["coach_name"] = coach_name.strip() if coach_name else None
 
-        # --- Robust club code (slug) detection: prefer canonical URL; fallback to base href ---
+        # Prefer canonical for the code (slug); fallback to base href
         canonical = response.css('link[rel="canonical"]::attr(href)').get()
         if canonical:
             attributes["code"] = unquote(urlparse(canonical).path.split("/")[1])
@@ -304,10 +313,10 @@ class ClubsByUrlSpider(ClubsSpider):
                    response.xpath('//h1[contains(@class,"data-header__headline-wrapper")]/text()').get()
         attributes["name"] = self.safe_strip(name_val)
 
-        # Normalize whitespace for string fields
-        for key, value in list(attributes.items()):
-            if isinstance(value, str):
-                attributes[key] = value.strip()
+        # Normalize whitespace
+        for k, v in list(attributes.items()):
+            if isinstance(v, str):
+                attributes[k] = v.strip()
 
         # ---- Players table ----
         seen_player_ids: set[int] = set()
@@ -333,9 +342,6 @@ class ClubsByUrlSpider(ClubsSpider):
             number = safe(tds[0].css("div.rn_nummer::text").get())
             name = safe(tr.css("td.posrela a::text").get())
             position = safe(tr.css("td.posrela tr:nth-child(2) td::text").get())
-
-            # Debug line you had; keep or remove as you prefer
-            self.logger.debug("PAY ATTENTION TO THIS: %s", len(tds))
 
             dob_age_td = tds[-8]
             nat_td = tds[-7]
@@ -395,8 +401,6 @@ class ClubsByUrlSpider(ClubsSpider):
         except Exception:
             pass
 
-        # Drop any competition association (explicitly)
-        if "parent" in club_item:
-            del club_item["parent"]
-
+        # Ensure no competition association is kept
+        club_item.pop("parent", None)
         yield club_item
