@@ -193,8 +193,8 @@ class ClubsByUrlSpider(ClubsSpider):
             Request(
                 item["seasoned_href"],
                 cb_kwargs={"parent": item},
-                handle_httpstatus_all=True,
                 errback=self._errback_start,
+                meta={"handle_httpstatus_all": True},
             )
             for item in items
         ]
@@ -262,8 +262,8 @@ class ClubsByUrlSpider(ClubsSpider):
                 request_url,
                 callback=self.parse_details,
                 cb_kwargs={"base": base},
-                handle_httpstatus_all=True,
                 errback=self._errback_club,
+                meta={"handle_httpstatus_all": True},
             )
 
     def _extract_club_id(self, href: str) -> Optional[str]:
