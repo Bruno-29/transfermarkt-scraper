@@ -1,7 +1,9 @@
 from urllib.parse import urlparse
 from typing import List, Dict, Optional
+import re
 
 from tfmkt.spiders.clubs import ClubsSpider
+from scrapy import Request
 
 
 class ClubsByUrlSpider(ClubsSpider):
@@ -90,6 +92,63 @@ class ClubsByUrlSpider(ClubsSpider):
                 'href': href
             }
             for href in entry_hrefs
+        ]
+
+    def _build_competition_url(self, href: str) -> str:
+        """Build the correct request URL for a competition entrypoint.
+        For cups, navigate to the participants page; for leagues, ensure plus/ variant.
+        Append saison_id when a season is provided.
+        """
+        path = self._normalize_href(href)
+        is_cup = self._kind == 'cup' or ('/pokalwettbewerb/' in path)
+
+        if is_cup:
+            # Transform to participants path for cups
+            original_path = path
+            if '/teilnehmer/' not in path:
+                if '/startseite/' in path:
+                    path = path.replace('/startseite/', '/teilnehmer/')
+                elif '/plus/' in path:
+                    path = path.replace('/plus/', '/teilnehmer/')
+                elif '/pokalwettbewerb/' in path and '/teilnehmer/pokalwettbewerb/' not in path:
+                    path = path.replace('/pokalwettbewerb/', '/teilnehmer/pokalwettbewerb/')
+            # Add saison_id if provided
+            try:
+                season_val = getattr(self, 'season', None)
+                if season_val:
+                    path = re.sub(r'/saison_id/\d+', '', path).rstrip('/')
+                    path = f"{path}/saison_id/{int(season_val)}"
+            except Exception:
+                pass
+            try:
+                if path != original_path:
+                    self.logger.info("Cup URL adjusted: %s -> %s", original_path, path)
+            except Exception:
+                pass
+            return f"{self.base_url}{path}"
+        else:
+            # League: ensure plus variant
+            if '/plus/' not in path:
+                path = path.rstrip('/') + '/plus/'
+            return f"{self.base_url}{path}"
+
+    def start_requests(self):
+        items: List[Dict] = []
+        for item in self.entrypoints:
+            url = self._build_competition_url(item['href'])
+            item['seasoned_href'] = url
+            try:
+                self.logger.info("Start request prepared: %s", url)
+            except Exception:
+                pass
+            items.append(item)
+
+        return [
+            Request(
+                item['seasoned_href'],
+                cb_kwargs={'parent': item}
+            )
+            for item in items
         ]
 
     def parse_details(self, response, base):
