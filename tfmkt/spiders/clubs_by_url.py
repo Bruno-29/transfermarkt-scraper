@@ -365,11 +365,11 @@ class ClubsByUrlSpider(ClubsSpider):
                 response.css('div.data-header__club-info span.data-header__club a::text').get()
             )
 
-        # Exception: if originating competition is UEFA Youth League (19YL), prefer that
-        parent_href = parent_info.get("href") if isinstance(parent_info, dict) else None
-        if parent_href and "/pokalwettbewerb/19YL" in parent_href:
+        # Exception rule: if club name contains "UEFA U19", force UEFA Youth League (19YL)
+        club_name_for_check = (attributes.get("name") or "").lower()
+        if "uefa u19" in club_name_for_check:
             parent_info["competition_code"] = "19YL"
-            parent_info["competition_href"] = self._normalize_href(parent_href)
+            parent_info["competition_href"] = "/uefa-youth-league/startseite/pokalwettbewerb/19YL"
             if not parent_info.get("competition_name"):
                 parent_info["competition_name"] = "UEFA Youth League"
         else:
