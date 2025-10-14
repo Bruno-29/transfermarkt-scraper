@@ -351,6 +351,20 @@ class ClubsByUrlSpider(ClubsSpider):
                    response.xpath('//h1[contains(@class,"data-header__headline-wrapper")]/text()').get()
         attributes["name"] = self.safe_strip(name_val)
 
+        # Competition info from header box (if available)
+        comp_href = response.css('a.data-header__box__club-link::attr(href)').get()
+        if comp_href:
+            comp_href = self._normalize_href(comp_href)
+            attributes["competition_href"] = comp_href
+            m_comp = re.search(r"/wettbewerb/([^/]+)", comp_href)
+            attributes["competition_code"] = m_comp.group(1) if m_comp else None
+            comp_name = response.css('div.data-header__club-info span.data-header__club a::text').get()
+            attributes["competition_name"] = safe(comp_name)
+        else:
+            attributes["competition_href"] = None
+            attributes["competition_code"] = None
+            attributes["competition_name"] = None
+
         # Normalize whitespace
         for k, v in list(attributes.items()):
             if isinstance(v, str):
