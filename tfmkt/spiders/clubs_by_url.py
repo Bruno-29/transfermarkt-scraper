@@ -18,7 +18,7 @@ class ClubsByUrlSpider(ClubsSpider):
       If a slug cannot be parsed from the club href, uses:
         /kader/verein/{club_id}/plus/1
     - Does NOT retry without /plus/1.
-    - Drops any 'parent' field before yielding the club item.
+    - Keeps the 'parent' competition context on the yielded club item.
     """
     name = "clubs_by_url"
 
@@ -252,7 +252,7 @@ class ClubsByUrlSpider(ClubsSpider):
                 roster_path = f"/kader/verein/{club_id}/plus/1"
 
             request_url = f"{self.base_url}{roster_path}"
-            base = {"type": "club", "href": href}
+            base = {"type": "club", "href": href, "parent": parent}
             try:
                 self.logger.debug("Club request prepared: href=%s url=%s", href, request_url)
             except Exception:
@@ -285,8 +285,9 @@ class ClubsByUrlSpider(ClubsSpider):
 
     def parse_details(self, response, base):
         """
-        Same fields as in your working ClubsSpider.parse_details, but we ensure
-        the yielded item has no 'parent' key to keep it competition-agnostic.
+        Same fields as in your working ClubsSpider.parse_details. We also keep
+        the 'parent' key so competition context is available, and we extract
+        the competition from the club header when present.
         """
         safe = self.safe_strip
         try:
@@ -351,19 +352,35 @@ class ClubsByUrlSpider(ClubsSpider):
                    response.xpath('//h1[contains(@class,"data-header__headline-wrapper")]/text()').get()
         attributes["name"] = self.safe_strip(name_val)
 
-        # Competition info from header box (if available)
+        # Competition info from header box (if available) → stored inside parent
+        parent_info: Dict = base.get("parent", {}) if isinstance(base, dict) else {}
         comp_href = response.css('a.data-header__box__club-link::attr(href)').get()
-        if comp_href:
-            comp_href = self._normalize_href(comp_href)
-            attributes["competition_href"] = comp_href
-            m_comp = re.search(r"/wettbewerb/([^/]+)", comp_href)
-            attributes["competition_code"] = m_comp.group(1) if m_comp else None
-            comp_name = response.css('div.data-header__club-info span.data-header__club a::text').get()
-            attributes["competition_name"] = safe(comp_name)
+        header_comp_href = self._normalize_href(comp_href) if comp_href else None
+        header_comp_code = None
+        header_comp_name = None
+        if header_comp_href:
+            m_comp = re.search(r"/wettbewerb/([^/]+)", header_comp_href)
+            header_comp_code = m_comp.group(1) if m_comp else None
+            header_comp_name = safe(
+                response.css('div.data-header__club-info span.data-header__club a::text').get()
+            )
+
+        # Exception: if originating competition is UEFA Youth League (19YL), prefer that
+        parent_href = parent_info.get("href") if isinstance(parent_info, dict) else None
+        if parent_href and "/pokalwettbewerb/19YL" in parent_href:
+            parent_info["competition_code"] = "19YL"
+            parent_info["competition_href"] = self._normalize_href(parent_href)
+            if not parent_info.get("competition_name"):
+                parent_info["competition_name"] = "UEFA Youth League"
         else:
-            attributes["competition_href"] = None
-            attributes["competition_code"] = None
-            attributes["competition_name"] = None
+            # Use header values (may be None if not present)
+            parent_info["competition_href"] = header_comp_href
+            parent_info["competition_code"] = header_comp_code
+            parent_info["competition_name"] = header_comp_name
+
+        # Reattach possibly updated parent back into base
+        if isinstance(base, dict):
+            base["parent"] = parent_info
 
         # Normalize whitespace
         for k, v in list(attributes.items()):
@@ -464,6 +481,4 @@ class ClubsByUrlSpider(ClubsSpider):
         except Exception:
             pass
 
-        # Ensure no competition association is kept
-        club_item.pop("parent", None)
         yield club_item
