@@ -388,18 +388,18 @@ class ClubsByUrlSpider(ClubsSpider):
             comp_href = self._normalize_href(comp_href)
             attributes["competition_href"] = comp_href
             m_comp = re.search(r"/wettbewerb/([^/]+)", comp_href)
-            attributes["competition_id"] = m_comp.group(1) if m_comp else None
+            attributes["competition_code"] = m_comp.group(1) if m_comp else None
             comp_name = response.css('div.data-header__club-info span.data-header__club a::text').get()
             attributes["competition_name"] = safe(comp_name)
         else:
-            attributes["competition_id"] = None
-            attributes["competition_id"] = None
+            attributes["competition_code"] = None
+            attributes["competition_code"] = None
             attributes["competition_name"] = None
 
         # Exception rule: if club name contains "UEFA U19", force UEFA Youth League (19YL)
         club_name_for_check = (attributes.get("name") or "").lower()
         if "uefa u19" in club_name_for_check:
-            attributes["competition_id"] = "19YL"
+            attributes["competition_code"] = "19YL"
             attributes["competition_href"] = "/uefa-youth-league/startseite/pokalwettbewerb/19YL"
             if not attributes.get("competition_name"):
                 attributes["competition_name"] = "UEFA Youth League"
