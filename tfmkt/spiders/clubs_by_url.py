@@ -179,25 +179,55 @@ class ClubsByUrlSpider(ClubsSpider):
     # -------------------------
 
     def start_requests(self):
-        items: List[Dict] = []
+        requests_to_start: List[Request] = []
         for item in self.entrypoints:
-            url = self._build_competition_url(item["href"])
-            item["seasoned_href"] = url
+            base_url = self._build_competition_url(item["href"])  # cup → /teilnehmer/ variant
+            item["seasoned_href"] = base_url
             try:
-                self.logger.info("Start request prepared: %s", url)
+                self.logger.info("Start request prepared: %s", base_url)
             except Exception:
                 pass
-            items.append(item)
 
-        return [
-            Request(
-                item["seasoned_href"],
-                cb_kwargs={"parent": item},
-                errback=self._errback_start,
-                meta={"handle_httpstatus_all": True},
+            # Always include the default entry
+            requests_to_start.append(
+                Request(
+                    item["seasoned_href"],
+                    cb_kwargs={"parent": item},
+                    errback=self._errback_start,
+                    meta={"handle_httpstatus_all": True},
+                )
             )
-            for item in items
-        ]
+
+            # Special-case: UEFA Youth League (19YL) → also crawl last 3 seasons participants pages
+            path = self._normalize_href(item.get("href") or "")
+            if "/pokalwettbewerb/19YL" in path:
+                # Ensure participants path
+                if "/teilnehmer/" not in path:
+                    if "/startseite/" in path:
+                        path = path.replace("/startseite/", "/teilnehmer/")
+                    elif "/plus/" in path:
+                        path = path.replace("/plus/", "/teilnehmer/")
+                    elif "/pokalwettbewerb/" in path and "/teilnehmer/pokalwettbewerb/" not in path:
+                        path = path.replace("/pokalwettbewerb/", "/teilnehmer/pokalwettbewerb/")
+
+                for season in (2025, 2024, 2023):
+                    season_path = re.sub(r"/saison_id/\d+", "", path).rstrip("/")
+                    season_path = f"{season_path}/saison_id/{season}"
+                    season_url = f"{self.base_url}{season_path}"
+                    try:
+                        self.logger.info("Start request (19YL season) prepared: %s", season_url)
+                    except Exception:
+                        pass
+                    requests_to_start.append(
+                        Request(
+                            season_url,
+                            cb_kwargs={"parent": item},
+                            errback=self._errback_start,
+                            meta={"handle_httpstatus_all": True},
+                        )
+                    )
+
+        return requests_to_start
 
     def parse(self, response, parent):
         """
