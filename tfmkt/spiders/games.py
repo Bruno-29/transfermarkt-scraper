@@ -159,7 +159,19 @@ class GamesSpider(BaseSpider):
 
     matchday = self.safe_strip(text_elements[0].get()).split("  ")[0]
     date = self.safe_strip(datetime_box.xpath('p/a[contains(@href, "datum")]/text()').get())
-    
+
+    # Extract kick-off time if available
+    kickoff_time = None
+    for elem in text_elements:
+        elem_text = self.safe_strip(elem.get())
+        # Look for time pattern like "3:00 PM" or "15:00"
+        if re.search(r'\d{1,2}:\d{2}\s*(AM|PM|am|pm)?', elem_text):
+            # Extract just the time part
+            time_match = re.search(r'(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?)', elem_text)
+            if time_match:
+                kickoff_time = time_match.group(1).strip()
+                break
+
     # extract venue "box" attributes
     venue_box = game_box.css('p.sb-zusatzinfos')
 
@@ -203,6 +215,7 @@ class GamesSpider(BaseSpider):
       'result': result,
       'matchday': matchday,
       'date': date,
+      'kickoff_time': kickoff_time,
       'stadium': stadium,
       'attendance': attendance,
       'referee': referee,
