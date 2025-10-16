@@ -111,8 +111,13 @@ class GameLineupsSpider(BaseSpider):
           else:
             player['age'] = None
         elif position_idx:
-          position = self.safe_strip(e.xpath("./td/text()").get().split(',')[0])
+          position_text = self.safe_strip(e.xpath("./td/text()").get())
+          position = position_text.split(',')[0]
           player['position'] = position
+
+          # Extract player market value if available
+          market_value_match = re.search(r'€[\d.]+m', position_text)
+          player['market_value'] = market_value_match.group(0) if market_value_match else None
           if "Back" in position or "Defender" in position or "defender" in position:
             defenders_count = defenders_count + 1
           elif "Midfield" in position or "midfield" in position:
@@ -166,7 +171,13 @@ class GameLineupsSpider(BaseSpider):
           else:
             player['age'] = None
         elif position_idx:
-          player['position'] = self.safe_strip(e.xpath("./td/text()").get().split(',')[0])
+          position_text = self.safe_strip(e.xpath("./td/text()").get())
+          position = position_text.split(',')[0]
+          player['position'] = position
+
+          # Extract player market value if available
+          market_value_match = re.search(r'€[\d.]+m', position_text)
+          player['market_value'] = market_value_match.group(0) if market_value_match else None
 
         if position_idx:
           if i == 0:
