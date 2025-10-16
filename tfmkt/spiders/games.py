@@ -197,6 +197,16 @@ class GamesSpider(BaseSpider):
 
     result = self.safe_strip(result_box.css('div.sb-endstand::text').get())
 
+    # Extract half-time score if available
+    halftime_score = None
+    halftime_text = result_box.css('div.sb-halbzeit::text').get()
+    if halftime_text:
+      halftime_text = self.safe_strip(halftime_text)
+      # Extract score pattern like "0:1" or "(0:1)"
+      halftime_match = re.search(r'\(?(\d+:\d+)\)?', halftime_text)
+      if halftime_match:
+        halftime_score = halftime_match.group(1)
+
     # extract from line-ups "box"
     manager_rows = response.xpath(
         "//tr[(contains(td/b/text(),'Manager')) or (contains(td/div/text(),'Manager'))]/td[2]/a"
@@ -226,6 +236,7 @@ class GamesSpider(BaseSpider):
       },
       'away_club_position': away_club_position,
       'result': result,
+      'halftime_score': halftime_score,
       'matchday': matchday,
       'date': date,
       'kickoff_time': kickoff_time,
