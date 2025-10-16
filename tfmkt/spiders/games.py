@@ -159,23 +159,69 @@ class GamesSpider(BaseSpider):
 
     matchday = self.safe_strip(text_elements[0].get()).split("  ")[0]
     date = self.safe_strip(datetime_box.xpath('p/a[contains(@href, "datum")]/text()').get())
-    
+
+    # Extract ISO date from href
+    date_iso = None
+    date_href = datetime_box.xpath('p/a[contains(@href, "datum")]/@href').get()
+    if date_href:
+      # Extract date from URL like /aktuell/waspassiertheute/aktuell/new/datum/2018-09-26
+      date_match = re.search(r'/datum/(\d{4}-\d{2}-\d{2})', date_href)
+      if date_match:
+        date_iso = date_match.group(1)
+
+    # Extract kick-off time if available
+    kickoff_time = None
+    for elem in text_elements:
+        elem_text = self.safe_strip(elem.get())
+        # Look for time pattern like "3:00 PM" or "15:00"
+        if re.search(r'\d{1,2}:\d{2}\s*(AM|PM|am|pm)?', elem_text):
+            # Extract just the time part
+            time_match = re.search(r'(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?)', elem_text)
+            if time_match:
+                kickoff_time = time_match.group(1).strip()
+                break
+
     # extract venue "box" attributes
     venue_box = game_box.css('p.sb-zusatzinfos')
 
     stadium = self.safe_strip(venue_box.xpath('node()')[1].xpath('a/text()').get())
-    attendance = self.safe_strip(venue_box.xpath('node()')[1].xpath('strong/text()').get())
-    referee = self.safe_strip(venue_box.xpath('a[contains(@href, "schiedsrichter")]/@title').get())
+    # Clean attendance format - remove "Attendance: " prefix
+    attendance_raw = self.safe_strip(venue_box.xpath('node()')[1].xpath('strong/text()').get())
+    attendance = attendance_raw.replace("Attendance: ", "") if attendance_raw else None
+
+    # Extract referee name and href
+    referee_element = venue_box.xpath('a[contains(@href, "schiedsrichter")]')
+    if referee_element:
+      referee_name = self.safe_strip(referee_element.xpath('./@title').get())
+      referee_href = referee_element.xpath('./@href').get()
+      referee = {
+        'name': referee_name,
+        'href': referee_href
+      } if referee_name else None
+    else:
+      referee = None
 
     # extract results "box" attributes
     result_box = game_box.css('div.ergebnis-wrap')
 
     result = self.safe_strip(result_box.css('div.sb-endstand::text').get())
 
+    # Extract half-time score if available
+    halftime_score = None
+    halftime_text = result_box.css('div.sb-halbzeit::text').get()
+    if halftime_text:
+      halftime_text = self.safe_strip(halftime_text)
+      # Extract score pattern like "0:1" or "(0:1)"
+      halftime_match = re.search(r'\(?(\d+:\d+)\)?', halftime_text)
+      if halftime_match:
+        halftime_score = halftime_match.group(1)
+
     # extract from line-ups "box"
-    manager_names = response.xpath(
-        "//tr[(contains(td/b/text(),'Manager')) or (contains(td/div/text(),'Manager'))]/td[2]/a/text()"
-      ).getall()
+    manager_rows = response.xpath(
+        "//tr[(contains(td/b/text(),'Manager')) or (contains(td/div/text(),'Manager'))]/td[2]/a"
+      )
+    manager_names = [self.safe_strip(row.xpath("./text()").get()) for row in manager_rows]
+    manager_hrefs = [row.xpath("./@href").get() for row in manager_rows]
 
     game_events = (
       self.extract_game_events(response, event_type="Goals") +
@@ -199,21 +245,27 @@ class GamesSpider(BaseSpider):
       },
       'away_club_position': away_club_position,
       'result': result,
+      'halftime_score': halftime_score,
       'matchday': matchday,
       'date': date,
+      'date_iso': date_iso,
+      'kickoff_time': kickoff_time,
       'stadium': stadium,
       'attendance': attendance,
       'referee': referee,
       'events': game_events
     }
 
-    if len(manager_names) == 2:
+    if len(manager_names) == 2 and len(manager_hrefs) == 2:
       home_manager_name, away_manager_name = manager_names
+      home_manager_href, away_manager_href = manager_hrefs
       item["home_manager"] = {
-        'name': home_manager_name
+        'name': home_manager_name,
+        'href': home_manager_href
       }
       item["away_manager"] = {
-        'name': away_manager_name
+        'name': away_manager_name,
+        'href': away_manager_href
       }
     
     yield item

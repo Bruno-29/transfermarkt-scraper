@@ -94,14 +94,30 @@ class GameLineupsSpider(BaseSpider):
         position_idx = idx == 2
         if number_idx:
           player = {}
-          player['number'] = e.xpath("./td/div[@class = 'rn_nummer']/text()").get()
+          # Clean player number - remove whitespace
+          player['number'] = self.safe_strip(e.xpath("./td/div[@class = 'rn_nummer']/text()").get())
+          # Extract player nationality (flag is in the same row as number)
+          player['nationality'] = e.xpath(".//img[@class='flaggenrahmen']/@title").get()
         elif player_idx:
           player['href'] = e.xpath("./td/a/@href").get()
           player['name'] = e.xpath("./td/a/@title").get()
           player['team_captain'] = 1 if e.xpath("./td/span/@title").get() else 0
+
+          # Extract player age
+          age_text = e.xpath("./td//text()[contains(., 'years old')]").get()
+          if age_text:
+            age_match = re.search(r'\((\d+) years old\)', age_text)
+            player['age'] = age_match.group(1) if age_match else None
+          else:
+            player['age'] = None
         elif position_idx:
-          position = self.safe_strip(e.xpath("./td/text()").get().split(',')[0])
+          position_text = self.safe_strip(e.xpath("./td/text()").get())
+          position = position_text.split(',')[0]
           player['position'] = position
+
+          # Extract player market value if available
+          market_value_match = re.search(r'€[\d.]+m', position_text)
+          player['market_value'] = market_value_match.group(0) if market_value_match else None
           if "Back" in position or "Defender" in position or "defender" in position:
             defenders_count = defenders_count + 1
           elif "Midfield" in position or "midfield" in position:
@@ -138,19 +154,57 @@ class GameLineupsSpider(BaseSpider):
         position_idx = idx == 2
         if number_idx:
           player = {}
-          player['number'] = e.xpath("./td/div[@class = 'rn_nummer']/text()").get()
+          # Clean player number - remove whitespace
+          player['number'] = self.safe_strip(e.xpath("./td/div[@class = 'rn_nummer']/text()").get())
+          # Extract player nationality (flag is in the same row as number)
+          player['nationality'] = e.xpath(".//img[@class='flaggenrahmen']/@title").get()
         elif player_idx:
           player['href'] = e.xpath("./td/a/@href").get()
           player['name'] = e.xpath("./td/a/@title").get()
           player['team_captain'] = 1 if e.xpath("./td/span/@title").get() else 0
+
+          # Extract player age
+          age_text = e.xpath("./td//text()[contains(., 'years old')]").get()
+          if age_text:
+            age_match = re.search(r'\((\d+) years old\)', age_text)
+            player['age'] = age_match.group(1) if age_match else None
+          else:
+            player['age'] = None
         elif position_idx:
-          player['position'] = self.safe_strip(e.xpath("./td/text()").get().split(',')[0])
+          position_text = self.safe_strip(e.xpath("./td/text()").get())
+          position = position_text.split(',')[0]
+          player['position'] = position
+
+          # Extract player market value if available
+          market_value_match = re.search(r'€[\d.]+m', position_text)
+          player['market_value'] = market_value_match.group(0) if market_value_match else None
 
         if position_idx:
           if i == 0:
             lineups['home_club']['substitutes'].append(player)
           else:
             lineups['away_club']['substitutes'].append(player)
+
+    # Extract team statistics from table-footer sections
+    footer_elements = response.xpath("//div[@class='table-footer']")
+    for i in range(min(2, len(footer_elements))):  # First 2 footers are for starting lineups
+      footer_tds = footer_elements[i].xpath(".//td/text()").getall()
+      team_stats = {}
+
+      for td_text in footer_tds:
+        td_text = self.safe_strip(td_text)
+        if td_text.startswith("Foreigners:"):
+          team_stats['foreigners'] = td_text.replace("Foreigners:", "").strip()
+        elif td_text.startswith("Avg. age:"):
+          team_stats['average_age'] = td_text.replace("Avg. age:", "").strip()
+        elif td_text.startswith("Total MV:"):
+          total_mv = td_text.replace("Total MV:", "").strip()
+          team_stats['total_market_value'] = None if total_mv == "-" else total_mv
+
+      if i == 0:
+        lineups['home_club']['team_stats'] = team_stats
+      else:
+        lineups['away_club']['team_stats'] = team_stats
 
     item = {
       'type': 'game_lineups',
