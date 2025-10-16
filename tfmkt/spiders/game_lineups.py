@@ -100,6 +100,14 @@ class GameLineupsSpider(BaseSpider):
           player['href'] = e.xpath("./td/a/@href").get()
           player['name'] = e.xpath("./td/a/@title").get()
           player['team_captain'] = 1 if e.xpath("./td/span/@title").get() else 0
+
+          # Extract player age
+          age_text = e.xpath("./td//text()[contains(., 'years old')]").get()
+          if age_text:
+            age_match = re.search(r'\((\d+) years old\)', age_text)
+            player['age'] = age_match.group(1) if age_match else None
+          else:
+            player['age'] = None
         elif position_idx:
           position = self.safe_strip(e.xpath("./td/text()").get().split(',')[0])
           player['position'] = position
@@ -145,6 +153,14 @@ class GameLineupsSpider(BaseSpider):
           player['href'] = e.xpath("./td/a/@href").get()
           player['name'] = e.xpath("./td/a/@title").get()
           player['team_captain'] = 1 if e.xpath("./td/span/@title").get() else 0
+
+          # Extract player age
+          age_text = e.xpath("./td//text()[contains(., 'years old')]").get()
+          if age_text:
+            age_match = re.search(r'\((\d+) years old\)', age_text)
+            player['age'] = age_match.group(1) if age_match else None
+          else:
+            player['age'] = None
         elif position_idx:
           player['position'] = self.safe_strip(e.xpath("./td/text()").get().split(',')[0])
 
