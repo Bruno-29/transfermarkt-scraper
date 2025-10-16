@@ -179,7 +179,18 @@ class GamesSpider(BaseSpider):
     # Clean attendance format - remove "Attendance: " prefix
     attendance_raw = self.safe_strip(venue_box.xpath('node()')[1].xpath('strong/text()').get())
     attendance = attendance_raw.replace("Attendance: ", "") if attendance_raw else None
-    referee = self.safe_strip(venue_box.xpath('a[contains(@href, "schiedsrichter")]/@title').get())
+
+    # Extract referee name and href
+    referee_element = venue_box.xpath('a[contains(@href, "schiedsrichter")]')
+    if referee_element:
+      referee_name = self.safe_strip(referee_element.xpath('./@title').get())
+      referee_href = referee_element.xpath('./@href').get()
+      referee = {
+        'name': referee_name,
+        'href': referee_href
+      } if referee_name else None
+    else:
+      referee = None
 
     # extract results "box" attributes
     result_box = game_box.css('div.ergebnis-wrap')
