@@ -96,6 +96,8 @@ class GameLineupsSpider(BaseSpider):
           player = {}
           # Clean player number - remove whitespace
           player['number'] = self.safe_strip(e.xpath("./td/div[@class = 'rn_nummer']/text()").get())
+          # Extract player nationality (flag is in the same row as number)
+          player['nationality'] = e.xpath(".//img[@class='flaggenrahmen']/@title").get()
         elif player_idx:
           player['href'] = e.xpath("./td/a/@href").get()
           player['name'] = e.xpath("./td/a/@title").get()
@@ -149,6 +151,8 @@ class GameLineupsSpider(BaseSpider):
           player = {}
           # Clean player number - remove whitespace
           player['number'] = self.safe_strip(e.xpath("./td/div[@class = 'rn_nummer']/text()").get())
+          # Extract player nationality (flag is in the same row as number)
+          player['nationality'] = e.xpath(".//img[@class='flaggenrahmen']/@title").get()
         elif player_idx:
           player['href'] = e.xpath("./td/a/@href").get()
           player['name'] = e.xpath("./td/a/@title").get()
