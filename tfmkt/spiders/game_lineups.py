@@ -94,7 +94,8 @@ class GameLineupsSpider(BaseSpider):
         position_idx = idx == 2
         if number_idx:
           player = {}
-          player['number'] = e.xpath("./td/div[@class = 'rn_nummer']/text()").get()
+          # Clean player number - remove whitespace
+          player['number'] = self.safe_strip(e.xpath("./td/div[@class = 'rn_nummer']/text()").get())
         elif player_idx:
           player['href'] = e.xpath("./td/a/@href").get()
           player['name'] = e.xpath("./td/a/@title").get()
@@ -138,7 +139,8 @@ class GameLineupsSpider(BaseSpider):
         position_idx = idx == 2
         if number_idx:
           player = {}
-          player['number'] = e.xpath("./td/div[@class = 'rn_nummer']/text()").get()
+          # Clean player number - remove whitespace
+          player['number'] = self.safe_strip(e.xpath("./td/div[@class = 'rn_nummer']/text()").get())
         elif player_idx:
           player['href'] = e.xpath("./td/a/@href").get()
           player['name'] = e.xpath("./td/a/@title").get()
