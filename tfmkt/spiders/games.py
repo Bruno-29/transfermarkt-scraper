@@ -187,9 +187,11 @@ class GamesSpider(BaseSpider):
     result = self.safe_strip(result_box.css('div.sb-endstand::text').get())
 
     # extract from line-ups "box"
-    manager_names = response.xpath(
-        "//tr[(contains(td/b/text(),'Manager')) or (contains(td/div/text(),'Manager'))]/td[2]/a/text()"
-      ).getall()
+    manager_rows = response.xpath(
+        "//tr[(contains(td/b/text(),'Manager')) or (contains(td/div/text(),'Manager'))]/td[2]/a"
+      )
+    manager_names = [self.safe_strip(row.xpath("./text()").get()) for row in manager_rows]
+    manager_hrefs = [row.xpath("./@href").get() for row in manager_rows]
 
     game_events = (
       self.extract_game_events(response, event_type="Goals") +
@@ -222,13 +224,16 @@ class GamesSpider(BaseSpider):
       'events': game_events
     }
 
-    if len(manager_names) == 2:
+    if len(manager_names) == 2 and len(manager_hrefs) == 2:
       home_manager_name, away_manager_name = manager_names
+      home_manager_href, away_manager_href = manager_hrefs
       item["home_manager"] = {
-        'name': home_manager_name
+        'name': home_manager_name,
+        'href': home_manager_href
       }
       item["away_manager"] = {
-        'name': away_manager_name
+        'name': away_manager_name,
+        'href': away_manager_href
       }
     
     yield item
