@@ -185,6 +185,27 @@ class GameLineupsSpider(BaseSpider):
           else:
             lineups['away_club']['substitutes'].append(player)
 
+    # Extract team statistics from table-footer sections
+    footer_elements = response.xpath("//div[@class='table-footer']")
+    for i in range(min(2, len(footer_elements))):  # First 2 footers are for starting lineups
+      footer_tds = footer_elements[i].xpath(".//td/text()").getall()
+      team_stats = {}
+
+      for td_text in footer_tds:
+        td_text = self.safe_strip(td_text)
+        if td_text.startswith("Foreigners:"):
+          team_stats['foreigners'] = td_text.replace("Foreigners:", "").strip()
+        elif td_text.startswith("Avg. age:"):
+          team_stats['average_age'] = td_text.replace("Avg. age:", "").strip()
+        elif td_text.startswith("Total MV:"):
+          total_mv = td_text.replace("Total MV:", "").strip()
+          team_stats['total_market_value'] = None if total_mv == "-" else total_mv
+
+      if i == 0:
+        lineups['home_club']['team_stats'] = team_stats
+      else:
+        lineups['away_club']['team_stats'] = team_stats
+
     item = {
       'type': 'game_lineups',
       'parent': {
