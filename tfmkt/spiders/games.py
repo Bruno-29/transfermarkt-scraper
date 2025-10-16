@@ -160,6 +160,15 @@ class GamesSpider(BaseSpider):
     matchday = self.safe_strip(text_elements[0].get()).split("  ")[0]
     date = self.safe_strip(datetime_box.xpath('p/a[contains(@href, "datum")]/text()').get())
 
+    # Extract ISO date from href
+    date_iso = None
+    date_href = datetime_box.xpath('p/a[contains(@href, "datum")]/@href').get()
+    if date_href:
+      # Extract date from URL like /aktuell/waspassiertheute/aktuell/new/datum/2018-09-26
+      date_match = re.search(r'/datum/(\d{4}-\d{2}-\d{2})', date_href)
+      if date_match:
+        date_iso = date_match.group(1)
+
     # Extract kick-off time if available
     kickoff_time = None
     for elem in text_elements:
@@ -239,6 +248,7 @@ class GamesSpider(BaseSpider):
       'halftime_score': halftime_score,
       'matchday': matchday,
       'date': date,
+      'date_iso': date_iso,
       'kickoff_time': kickoff_time,
       'stadium': stadium,
       'attendance': attendance,
