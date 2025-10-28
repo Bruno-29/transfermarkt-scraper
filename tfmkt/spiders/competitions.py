@@ -87,7 +87,26 @@ class CompetitionsSpider(BaseSpider):
                         'competition_type': comp['type'],
                         'href': comp['href']
                     }
-
+        if base['country_id'] == '75':  # Italy
+            manual_competitions = [
+                {
+                    'href': '/primavera-1/startseite/wettbewerb/IJ1',
+                    'code': 'IJ1',
+                    'type': 'youth_league'
+                }
+            ]
+            for comp in manual_competitions:
+                competition_key = f"75_{comp['code']}"
+                if competition_key not in self.seen_competitions:
+                    self.seen_competitions.add(competition_key)
+                    yield {
+                        'type': 'competition',
+                        **base,
+                        'competition_code': comp['code'],
+                        'competition_type': comp['type'],
+                        'href': comp['href']
+                    }
+                    
         # Add manual competitions for Israel
         if base['country_id'] == '74':  # Israel
             manual_competitions = [
