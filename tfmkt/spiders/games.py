@@ -208,9 +208,10 @@ class GamesSpider(BaseSpider):
 
     # Extract half-time score if available
     halftime_score = None
-    halftime_text = result_box.css('div.sb-halbzeit::text').get()
-    if halftime_text:
-      halftime_text = self.safe_strip(halftime_text)
+    # Get all text including text in nested elements like <span>
+    halftime_texts = result_box.css('div.sb-halbzeit *::text, div.sb-halbzeit::text').getall()
+    if halftime_texts:
+      halftime_text = self.safe_strip(''.join(halftime_texts))
       # Extract score pattern like "0:1" or "(0:1)"
       halftime_match = re.search(r'\(?(\d+:\d+)\)?', halftime_text)
       if halftime_match:
