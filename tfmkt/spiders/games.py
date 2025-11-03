@@ -123,6 +123,57 @@ class GamesSpider(BaseSpider):
 
     return events
 
+  def extract_starting_lineup(self, lineup_section):
+    """Extract starting lineup players from the formation section.
+
+    Args:
+      lineup_section: A Scrapy Selector for the lineup box (aufstellung-box)
+
+    Returns:
+      List of player dictionaries with name and href
+    """
+    players = []
+    player_links = lineup_section.xpath('.//div[@class="formation-player-container"]//span[@class="formation-number-name"]/a')
+
+    for player_link in player_links:
+      player_name = self.safe_strip(player_link.xpath('./text()').get())
+      player_href = player_link.xpath('./@href').get()
+
+      if player_name and player_href:
+        players.append({
+          'name': player_name,
+          'href': player_href
+        })
+
+    return players
+
+  def extract_substitutes(self, lineup_section):
+    """Extract substitute players from the bench table.
+
+    Args:
+      lineup_section: A Scrapy Selector for the lineup box (aufstellung-box)
+
+    Returns:
+      List of player dictionaries with name and href
+    """
+    players = []
+    # Get all rows from the ersatzbank table, excluding the manager row
+    player_rows = lineup_section.xpath('.//table[@class="ersatzbank"]/tr[not(contains(@class, "bench-table__tr"))]')
+
+    for row in player_rows:
+      player_link = row.xpath('./td[2]/a')
+      if player_link:
+        player_name = self.safe_strip(player_link.xpath('./@title').get())
+        player_href = player_link.xpath('./@href').get()
+
+        if player_name and player_href:
+          players.append({
+            'name': player_name,
+            'href': player_href
+          })
+
+    return players
+
   def parse_game(self, response, base):
     """Parse games and fixutres page. From this page follow to each game page.
 
@@ -231,6 +282,25 @@ class GamesSpider(BaseSpider):
       self.extract_game_events(response, event_type="Shootout")
     )
 
+    # Extract player lineups from both teams
+    # Note: Not all lineup sections have consistent class names, so we look for
+    # large-6 columns divs that contain formation containers
+    lineup_sections = response.xpath('//div[contains(@class, "large-6") and contains(@class, "columns") and .//div[@class="formation-player-container"]]')
+
+    home_starting_lineup = []
+    home_substitutes = []
+    away_starting_lineup = []
+    away_substitutes = []
+
+    if len(lineup_sections) >= 2:
+      # First section is home team
+      home_starting_lineup = self.extract_starting_lineup(lineup_sections[0])
+      home_substitutes = self.extract_substitutes(lineup_sections[0])
+
+      # Second section is away team
+      away_starting_lineup = self.extract_starting_lineup(lineup_sections[1])
+      away_substitutes = self.extract_substitutes(lineup_sections[1])
+
     item = {
       **base,
       'type': 'game',
@@ -254,7 +324,11 @@ class GamesSpider(BaseSpider):
       'stadium': stadium,
       'attendance': attendance,
       'referee': referee,
-      'events': game_events
+      'events': game_events,
+      'home_starting_lineup': home_starting_lineup,
+      'home_substitutes': home_substitutes,
+      'away_starting_lineup': away_starting_lineup,
+      'away_substitutes': away_substitutes
     }
 
     if len(manager_names) == 2 and len(manager_hrefs) == 2:
