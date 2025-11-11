@@ -63,12 +63,14 @@ confederations → competitions → games → game_lineups
    - `clubs`: Scrapes club metadata and squad rosters
    - `players`: Scrapes detailed player profiles
    - `games`: Scrapes match details and events
+   - `games_urls`: Extracts game URLs without parsing details
    - `game_lineups`: Scrapes lineups and formations
    - `appearances`: Scrapes player match statistics
 
 3. **Standalone Spiders** (optional parent input)
    - `clubs_by_url`: Direct club scraping via competition codes
    - `players_from_file`: Direct player scraping via href list
+   - `games_by_url`: Direct game scraping via game hrefs/IDs
 
 ## Installation
 
@@ -428,7 +430,148 @@ scrapy crawl games -a parents=competitions.json -a season=2020 > games.json
 
 ---
 
-### 8. Game Lineups Spider
+### 8. Games URLs Spider
+
+**Name:** `games_urls`
+
+**Purpose:** Fast extraction of game URLs and match metadata from competition fixtures pages without visiting individual game pages
+
+**Parameters:**
+- `parents` (required): File or stdin with competition objects
+- `season` (optional): Season filter
+
+**Key Features:**
+- Navigates to competition fixtures pages
+- Extracts game URLs along with match metadata (date, time, teams, result)
+- ~300x faster than `games` spider (1 request per competition vs 300+)
+- Perfect for building rich game inventories with filtering capabilities
+- Minimal bandwidth usage
+- Outputs game objects ready for `games_by_url` spider
+- Enables pre-filtering games by date, teams, or result status
+
+**Output Fields:**
+- `type`: "game"
+- `game_id`: Transfermarkt game ID
+- `href`: Game URL path
+- `date_iso`: ISO format date (YYYY-MM-DD) for easy sorting
+- `date_display`: Human-readable date format
+- `kickoff_time`: Match start time (may be None for unscheduled games)
+- `home_club`: Object with type, name, and href for home team
+- `away_club`: Object with type, name, and href for away team
+- `result`: Match score (None for upcoming games)
+- `parent`: Parent competition object
+
+**Output Structure:**
+```json
+{
+  "type": "game",
+  "href": "/bayern-munich_rb-leipzig/index/spielbericht/4632805",
+  "game_id": 4632805,
+  "date_iso": "2025-08-22",
+  "date_display": "22/08/25",
+  "kickoff_time": "7:30 PM",
+  "home_club": {
+    "type": "club",
+    "name": "Bayern Munich",
+    "href": "/fc-bayern-munchen/spielplan/verein/27/saison_id/2025"
+  },
+  "away_club": {
+    "type": "club",
+    "name": "RB Leipzig",
+    "href": "/rasenballsport-leipzig/spielplan/verein/23826/saison_id/2025"
+  },
+  "result": "6:0",
+  "parent": {
+    "type": "competition",
+    "competition_code": "GB1",
+    "href": "/premier-league/startseite/wettbewerb/GB1"
+  }
+}
+```
+
+**Use Cases:**
+- Discover all available games with metadata for competitions
+- Build rich game inventories for filtering and analysis
+- Filter games by date, teams, or result status before detailed scraping
+- Feed filtered output to `games_by_url` for targeted scraping
+- Quick analysis of competition schedules and results
+- Identify upcoming vs completed games without visiting individual pages
+
+**Example:**
+```bash
+# Extract all games with metadata from competitions
+scrapy crawl games_urls -a parents=competitions.json > all_games_metadata.json
+
+# Filter by team and scrape details
+cat all_games_metadata.json | grep "Bayern Munich" | scrapy crawl games_by_url
+
+# Filter by date range (using jq)
+cat all_games_metadata.json | jq 'select(.date_iso >= "2025-08-01" and .date_iso <= "2025-08-31")' | scrapy crawl games_by_url
+
+# Filter only completed games
+cat all_games_metadata.json | jq 'select(.result != null)' > completed_games.json
+
+# Piped workflow with filtering
+cat competitions.json | scrapy crawl games_urls | grep "Manchester" | head -10 | scrapy crawl games_by_url
+```
+
+**Performance Comparison:**
+- `games` spider: ~330 requests per competition (1 for fixtures + ~329 for individual games)
+- `games_urls` spider: 1 request per competition (fixtures page only)
+- Result: 300x faster with rich metadata included
+
+---
+
+### 9. Games By URL Spider
+
+**Name:** `games_by_url`
+
+**Purpose:** Direct game scraping that bypasses the competition hierarchy, allowing cherry-picking of specific games
+
+**Parameters:**
+- `parents` (required): File or stdin with game objects containing href/game_id
+
+**Key Features:**
+- Bypasses competition discovery (parse and extract_game_urls steps)
+- Goes directly to individual game pages
+- Reuses all parsing logic from `games` spider
+- Ideal for refreshing specific games or targeted scraping
+- Supports both file input and piped input
+
+**Input Format (JSON Lines):**
+```json
+{"type": "game", "href": "/spielbericht/index/spielbericht/3426901", "game_id": 3426901}
+{"type": "game", "href": "/spielbericht/index/spielbericht/3426916", "game_id": 3426916}
+```
+
+**Output Fields:** Identical to `games` spider - extracts comprehensive game data including:
+- Match results and scores (full-time and half-time)
+- Match metadata (date, time, stadium, attendance)
+- Referee and manager information
+- Player lineups (starting XI and substitutes for both teams)
+- All match events (goals, cards, substitutions, shootouts)
+
+**Use Case:**
+- Refresh specific game data without re-scraping entire competitions
+- Target high-profile matches or specific matchdays
+- Update recent games from a known list of game IDs
+- Process curated game lists from external sources
+
+**Example:**
+```bash
+# From file with selected games
+scrapy crawl games_by_url -a parents=selected_games.json > game_details.json
+
+# From stdin (cherry-picking)
+cat all_games.json | grep "3426901\|3426916" | scrapy crawl games_by_url
+
+# Piped from grep filter
+echo '{"type":"game","href":"/spielbericht/index/spielbericht/3426901"}' | scrapy crawl games_by_url
+```
+
+---
+
+### 10. Game Lineups Spider
 
 **Name:** `game_lineups`
 
@@ -475,7 +618,7 @@ scrapy crawl game_lineups -a parents=games.json > lineups.json
 
 ---
 
-### 9. Appearances Spider
+### 11. Appearances Spider
 
 **Name:** `appearances`
 
@@ -557,7 +700,33 @@ jq '{type: "player", href: .href}' old_players.json > player_hrefs.json
 scrapy crawl players_from_file -a parents=player_hrefs.json > updated_players.json
 ```
 
-### Example 5: Get Season Statistics
+### Example 5: Fast Game URL Extraction
+
+```bash
+# Extract all game URLs from competitions (fast - no game parsing)
+scrapy crawl games_urls -a parents=competitions.json > all_game_urls.json
+
+# Then selectively scrape specific games
+cat all_game_urls.json | head -20 | scrapy crawl games_by_url > selected_games.json
+
+# Or filter and scrape in one pipeline
+cat competitions.json | scrapy crawl games_urls | grep "Manchester City" | scrapy crawl games_by_url
+```
+
+### Example 6: Update Specific Games
+
+```bash
+# Extract game hrefs from existing data
+jq '{type: "game", href: .href, game_id: .game_id}' all_games.json | head -10 > selected_games.json
+
+# Re-scrape specific games
+scrapy crawl games_by_url -a parents=selected_games.json > updated_games.json
+
+# Or cherry-pick with grep
+cat all_games.json | grep "Manchester City" | scrapy crawl games_by_url
+```
+
+### Example 7: Get Season Statistics
 
 ```bash
 # Scrape players and their appearances in one pipeline
@@ -653,22 +822,31 @@ docker run \
 │  competitions   │ (Input: confederations)
 └────────┬────────┘
          │
-         ├───────────────────────────────┐
-         ↓                               ↓
-┌─────────────────┐            ┌─────────────────┐
-│     clubs       │            │      games      │
-│  (+ players[])  │            └────────┬────────┘
-└────────┬────────┘                     │
-         │                              ↓
-         ↓                     ┌─────────────────┐
-┌─────────────────┐            │  game_lineups   │
-│     players     │            └─────────────────┘
+         ├───────────────────────────────────────────┐
+         ↓                                           ↓
+┌─────────────────┐                        ┌─────────────────┐
+│     clubs       │                        │      games      │ (Full parse)
+│  (+ players[])  │                        └────────┬────────┘
+└────────┬────────┘                                 │
+         │                                          ↓
+         ↓                                 ┌─────────────────┐
+┌─────────────────┐                        │  game_lineups   │
+│     players     │                        └─────────────────┘
 └────────┬────────┘
          │
-         ↓
-┌─────────────────┐
-│  appearances    │ (Requires season parameter)
-└─────────────────┘
+         ↓                                 ┌─────────────────┐
+┌─────────────────┐                        │   games_urls    │ (URLs only - fast)
+│  appearances    │                        └────────┬────────┘
+└─────────────────┘                                 │
+                                                    ↓
+                                          ┌─────────────────┐
+                                          │  games_by_url   │ (Selective parse)
+                                          └────────┬────────┘
+                                                   │
+                                                   ↓
+                                          ┌─────────────────┐
+                                          │  game_lineups   │
+                                          └─────────────────┘
 
 Standalone Spiders (Can be used independently):
 ┌─────────────────┐
@@ -679,6 +857,10 @@ Standalone Spiders (Can be used independently):
 ┌─────────────────┐
 │players_from_file│ (Input: player hrefs)
 └─────────────────┘
+
+┌─────────────────┐
+│  games_by_url   │ (Input: game hrefs)
+└─────────────────┘
 ```
 
 ### Input/Output Matrix
@@ -686,13 +868,15 @@ Standalone Spiders (Can be used independently):
 | Spider | Input Type | Input Source | Output Type | Output Feeds To |
 |--------|-----------|--------------|-------------|-----------------|
 | confederations | None | - | confederation | competitions |
-| competitions | confederation | confederations | competition | clubs, games |
+| competitions | confederation | confederations | competition | clubs, games, games_urls |
 | clubs | competition | competitions | club (with players[]) | players |
 | clubs_by_url | codes/hrefs | Command line | club (with players[]) | players |
 | players | club | clubs, clubs_by_url | player | appearances |
 | players_from_file | player href | File/stdin | player | appearances |
-| games | competition | competitions | game | game_lineups |
-| game_lineups | game | games | game_lineups | - |
+| games | competition | competitions | game (full) | game_lineups |
+| games_urls | competition | competitions | game (URL only) | games_by_url |
+| games_by_url | game href | File/stdin, games_urls | game (full) | game_lineups |
+| game_lineups | game | games, games_by_url | game_lineups | - |
 | appearances | player | players, players_from_file | appearance | - |
 
 ### Parent-Child Relationships

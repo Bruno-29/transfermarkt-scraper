@@ -450,7 +450,162 @@ Variable number of game objects (depends on competition fixtures)
 
 ---
 
-## 8. Game Lineups Spider
+## 8. Games URLs Spider
+
+### Command
+```bash
+scrapy crawl games_urls -a parents=<competitions_file> [-a season=<year>]
+```
+
+### Input Schema
+```typescript
+interface CompetitionInput {
+  type: "competition";
+  href: string;
+  // Other fields optional
+}
+```
+
+### Output Schema
+```typescript
+interface GameWithMetadata {
+  type: "game";
+  href: string;  // e.g., "/spielbericht/index/spielbericht/3426901"
+  game_id: number;
+  date_iso: string | null;  // ISO format: "YYYY-MM-DD"
+  date_display: string | null;  // Human-readable: "22/08/25"
+  kickoff_time: string | null;  // e.g., "7:30 PM" (may be null for unscheduled)
+  home_club: {
+    type: "club";
+    name: string;
+    href: string;
+  } | null;
+  away_club: {
+    type: "club";
+    name: string;
+    href: string;
+  } | null;
+  result: string | null;  // e.g., "6:0" (null for upcoming games)
+  parent: Competition;  // Parent competition object
+}
+```
+
+### Parameters
+- `parents` (required): File or stdin with competition objects
+- `season` (optional): Season filter
+
+### Behavior
+- **Fast metadata extraction**: Navigates to competition fixtures page and extracts rich metadata
+- **No game page visits**: Extracts all data from fixtures table without parsing individual games
+- **~300x faster**: 1 request per competition vs 300+ for `games` spider
+- **Rich filtering capability**: Date, teams, and result data enables pre-filtering
+- **Minimal bandwidth**: Only downloads fixtures pages, not game detail pages
+- **Direct feed to games_by_url**: Output format compatible with `games_by_url` input
+
+### Use Cases
+- Build comprehensive game inventories with metadata quickly
+- Discover all available games with schedule and result information
+- Pre-filter games by date, teams, or completion status before detailed scraping
+- Feed filtered output into `games_by_url` for two-stage scraping workflow
+- Rapid game analysis and scheduling insights
+- Identify upcoming vs completed games without visiting individual pages
+
+### Returns
+Variable number of game objects with metadata (typically 330-390 per competition)
+
+### Example Output
+```json
+{"type": "game", "href": "/bayern-munich_rb-leipzig/index/spielbericht/4632805", "game_id": 4632805, "date_iso": "2025-08-22", "date_display": "22/08/25", "kickoff_time": "7:30 PM", "home_club": {"type": "club", "name": "Bayern Munich", "href": "/fc-bayern-munchen/spielplan/verein/27/saison_id/2025"}, "away_club": {"type": "club", "name": "RB Leipzig", "href": "/rasenballsport-leipzig/spielplan/verein/23826/saison_id/2025"}, "result": "6:0", "parent": {"type": "competition", "competition_code": "GB1"}}
+{"type": "game", "href": "/eintracht-frankfurt_sv-werder-bremen/index/spielbericht/4633376", "game_id": 4633376, "date_iso": "2025-08-23", "date_display": "23/08/25", "kickoff_time": "2:30 PM", "home_club": {"type": "club", "name": "Eintracht Frankfurt", "href": "/eintracht-frankfurt/spielplan/verein/24/saison_id/2025"}, "away_club": {"type": "club", "name": "SV Werder Bremen", "href": "/sv-werder-bremen/spielplan/verein/86/saison_id/2025"}, "result": "4:1", "parent": {"type": "competition", "competition_code": "GB1"}}
+```
+
+### Performance Comparison
+| Spider | Requests per Competition | Time per Competition | Data Extracted | Use Case |
+|--------|-------------------------|---------------------|----------------|----------|
+| `games_urls` | 1 | ~2 seconds | URLs + metadata | Fast inventory with filtering |
+| `games` | ~330 | ~10 minutes | Full game details | Complete game data |
+| `games_urls` → `games_by_url` | 1 + N (selected) | Variable | Filtered full details | Selective detailed scraping |
+
+---
+
+## 9. Games By URL Spider
+
+### Command
+```bash
+scrapy crawl games_by_url -a parents=<games_file>
+```
+
+### Input Schema
+```typescript
+interface GameInput {
+  type: "game";
+  href: string;  // Must be /spielbericht/index/spielbericht/<id>
+  game_id?: number;  // Optional
+  parent?: object;  // Optional parent tracking
+}
+```
+
+### Output Schema
+Identical to `games` spider output schema (see section 7):
+
+```typescript
+interface Game {
+  type: "game";
+  href: string;
+  parent: object;  // Passed through from input
+  game_id: number;
+  home_club: { type: "club"; href: string };
+  home_club_position: string;
+  away_club: { type: "club"; href: string };
+  away_club_position: string;
+  result: string;
+  halftime_score: string;
+  matchday: string;
+  date: string;
+  date_iso: string;
+  kickoff_time: string;
+  stadium: string;
+  attendance: string;
+  referee: { name: string; href: string } | null;
+  home_manager: { name: string; href: string } | null;
+  away_manager: { name: string; href: string } | null;
+  events: GameEvent[];
+  home_starting_lineup: GamePlayer[];
+  home_substitutes: GamePlayer[];
+  away_starting_lineup: GamePlayer[];
+  away_substitutes: GamePlayer[];
+}
+```
+
+### Parameters
+- `parents` (required): File or stdin with game objects containing hrefs
+
+### Behavior
+- **Bypasses competition hierarchy**: Skips `parse()` and `extract_game_urls()` methods
+- **Direct game page scraping**: Creates requests directly to game detail pages
+- **Reuses parsing logic**: Uses same `parse_game()` method as `games` spider
+- **Cherry-picking support**: Ideal for targeted game updates or specific match selection
+- **Parent passthrough**: Maintains any parent object from input for traceability
+
+### Use Cases
+- Refresh specific game data without re-scraping entire competitions
+- Update recently completed matches from a curated list
+- Target high-profile games or specific matchdays
+- Process game lists from external sources or APIs
+- Re-scrape games with updated/corrected data
+
+### Returns
+Variable number of game objects (one per input game)
+
+### Example Input File
+```json
+{"type": "game", "href": "/spielbericht/index/spielbericht/3426901", "game_id": 3426901}
+{"type": "game", "href": "/spielbericht/index/spielbericht/3426916", "game_id": 3426916}
+```
+
+---
+
+## 10. Game Lineups Spider
 
 ### Command
 ```bash
@@ -519,7 +674,7 @@ Variable number of game lineup objects (one per input game)
 
 ---
 
-## 9. Appearances Spider
+## 11. Appearances Spider
 
 ### Command
 ```bash
@@ -865,6 +1020,100 @@ def scrape_premier_league_clubs(season=2020):
             clubs.append(json.loads(line))
 
     return clubs
+
+def scrape_specific_games(game_ids):
+    """Scrape specific games by their IDs."""
+    import tempfile
+
+    # Create temp file with game objects
+    games_input = []
+    for game_id in game_ids:
+        games_input.append({
+            "type": "game",
+            "href": f"/spielbericht/index/spielbericht/{game_id}",
+            "game_id": game_id
+        })
+
+    # Write to temp file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        for game in games_input:
+            f.write(json.dumps(game) + '\n')
+        temp_file = f.name
+
+    # Run games_by_url spider
+    result = subprocess.run(
+        ['scrapy', 'crawl', 'games_by_url',
+         '-a', f'parents={temp_file}'],
+        capture_output=True,
+        text=True
+    )
+
+    # Parse games
+    games = []
+    for line in result.stdout.split('\n'):
+        if line.strip():
+            games.append(json.loads(line))
+
+    return games
+
+def scrape_game_urls_fast(competition_code):
+    """Extract all game URLs from a competition quickly (no game parsing)."""
+    # Create competition object
+    competition = {
+        "type": "competition",
+        "href": f"/{competition_code}/startseite/wettbewerb/{competition_code}"
+    }
+
+    # Run games_urls spider
+    process = subprocess.Popen(
+        ['scrapy', 'crawl', 'games_urls'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True
+    )
+
+    stdout, _ = process.communicate(json.dumps(competition))
+
+    # Parse game URLs
+    game_urls = []
+    for line in stdout.split('\n'):
+        if line.strip():
+            game_urls.append(json.loads(line))
+
+    return game_urls
+
+def scrape_games_two_stage(competition_code):
+    """Two-stage scraping: fast URL extraction, then selective parsing."""
+    # Stage 1: Extract all game URLs (fast)
+    print("Stage 1: Extracting game URLs...")
+    game_urls = scrape_game_urls_fast(competition_code)
+    print(f"Found {len(game_urls)} games")
+
+    # Stage 2: Selectively scrape games (e.g., first 10)
+    print("Stage 2: Parsing selected games...")
+    selected_games = game_urls[:10]
+
+    # Write to temp file
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        for game in selected_games:
+            f.write(json.dumps(game) + '\n')
+        temp_file = f.name
+
+    # Parse selected games
+    result = subprocess.run(
+        ['scrapy', 'crawl', 'games_by_url',
+         '-a', f'parents={temp_file}'],
+        capture_output=True,
+        text=True
+    )
+
+    games = []
+    for line in result.stdout.split('\n'):
+        if line.strip():
+            games.append(json.loads(line))
+
+    return games
 ```
 
 ### Node.js Integration
@@ -918,6 +1167,118 @@ async function scrapeClubsByCode(codes, season = 2020) {
     });
 
     rl.on('close', () => resolve(results));
+    spider.on('error', reject);
+  });
+}
+
+async function scrapeSpecificGames(gameIds) {
+  return new Promise((resolve, reject) => {
+    const fs = require('fs');
+    const tmpFile = '/tmp/games_input.json';
+
+    // Write game objects to temp file
+    const gamesInput = gameIds.map(id => ({
+      type: 'game',
+      href: `/spielbericht/index/spielbericht/${id}`,
+      game_id: id
+    }));
+
+    fs.writeFileSync(tmpFile, gamesInput.map(g => JSON.stringify(g)).join('\n'));
+
+    // Run games_by_url spider
+    const spider = spawn('scrapy', [
+      'crawl', 'games_by_url',
+      '-a', `parents=${tmpFile}`
+    ]);
+
+    const results = [];
+    const rl = readline.createInterface({
+      input: spider.stdout
+    });
+
+    rl.on('line', (line) => {
+      if (line.trim()) {
+        results.push(JSON.parse(line));
+      }
+    });
+
+    rl.on('close', () => {
+      fs.unlinkSync(tmpFile);  // Clean up
+      resolve(results);
+    });
+
+    spider.on('error', reject);
+  });
+}
+
+async function scrapeGameUrlsFast(competitionCode) {
+  return new Promise((resolve, reject) => {
+    const competition = {
+      type: 'competition',
+      href: `/${competitionCode}/startseite/wettbewerb/${competitionCode}`
+    };
+
+    const spider = spawn('scrapy', ['crawl', 'games_urls']);
+
+    // Write competition to stdin
+    spider.stdin.write(JSON.stringify(competition));
+    spider.stdin.end();
+
+    const results = [];
+    const rl = readline.createInterface({
+      input: spider.stdout
+    });
+
+    rl.on('line', (line) => {
+      if (line.trim()) {
+        results.push(JSON.parse(line));
+      }
+    });
+
+    rl.on('close', () => resolve(results));
+    spider.on('error', reject);
+  });
+}
+
+async function scrapGamesTwoStage(competitionCode) {
+  // Stage 1: Fast URL extraction
+  console.log('Stage 1: Extracting game URLs...');
+  const gameUrls = await scrapeGameUrlsFast(competitionCode);
+  console.log(`Found ${gameUrls.length} games`);
+
+  // Stage 2: Selectively parse games (first 10)
+  console.log('Stage 2: Parsing selected games...');
+  const selectedGames = gameUrls.slice(0, 10);
+
+  return new Promise((resolve, reject) => {
+    const fs = require('fs');
+    const tmpFile = '/tmp/selected_games.json';
+
+    // Write selected games to temp file
+    fs.writeFileSync(tmpFile, selectedGames.map(g => JSON.stringify(g)).join('\n'));
+
+    // Parse selected games
+    const spider = spawn('scrapy', [
+      'crawl', 'games_by_url',
+      '-a', `parents=${tmpFile}`
+    ]);
+
+    const results = [];
+    const rl = readline.createInterface({
+      input: spider.stdout
+    });
+
+    rl.on('line', (line) => {
+      if (line.trim()) {
+        results.push(JSON.parse(line));
+      }
+    });
+
+    rl.on('close', () => {
+      fs.unlinkSync(tmpFile);  // Clean up
+      resolve(results);
+    });
+
     spider.on('error', reject);
   });
 }
