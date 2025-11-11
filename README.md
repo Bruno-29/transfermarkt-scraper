@@ -13,7 +13,7 @@ A web scraper for collecting data from [Transfermarkt](https://www.transfermarkt
 ====> Confederations ====> Competitions ====> (Clubs, Games) ====> Players ====> Appearances
 ```
 
-Each one of these entities can be discovered and refreshed separately by invoking the corresponding crawler.
+Each one of these entities can be discovered and refreshed separately by invoking the corresponding crawler. Some crawlers (like `clubs_by_url` and `games_by_url`) allow direct access to specific entities, bypassing the hierarchy.
 
 ## Installation
 
@@ -39,11 +39,17 @@ These are some usage examples for how the scraper may be run.
 scrapy crawl confederations > confederations.json
 scrapy crawl competitions -a parents=confederations.json > competitions.json
 
-# you can use intermediate files or pipe crawlers one after the other to traverse the hierarchy 
+# you can use intermediate files or pipe crawlers one after the other to traverse the hierarchy
 cat competitions.json | head -2 \
     | scrapy crawl clubs \
     | scrapy crawl players \
     | scrapy crawl appearances
+
+# extract game URLs without parsing game details (fast)
+scrapy crawl games_urls -a parents=competitions.json > game_urls.json
+
+# then selectively scrape specific games
+cat game_urls.json | head -10 | scrapy crawl games_by_url
 ```
 
 Alternatively you can also use [`dcaribou/transfermarkt-scraper`](https://hub.docker.com/repository/docker/dcaribou/transfermarkt-scraper) docker image
