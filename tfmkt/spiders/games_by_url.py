@@ -22,33 +22,23 @@ class GamesByUrlSpider(GamesSpider):
 
   name = 'games_by_url'
 
-  def start_requests(self):
-    """Generate requests directly to game pages, skipping competition hierarchy.
+  def parse(self, response, parent):
+    """Parse game page directly from URL.
 
-    Reads from self.entrypoints (populated by BaseSpider from file or stdin)
-    and creates requests that go directly to parse_game().
+    Receives game URLs from jsonlines (output of games_urls spider)
+    and delegates to parse_game() to extract all game details including
+    lineups, events, managers, referee, etc.
 
-    @returns requests 1+
+    @url https://www.transfermarkt.co.uk/liverpool-fc_afc-bournemouth/index/spielbericht/4625774
+    @returns items 1 1
+    @cb_kwargs {"parent": {"type": "game", "href": "/liverpool-fc_afc-bournemouth/index/spielbericht/4625774", "game_id": 4625774}}
+    @scrapes type href parent game_id result matchday date stadium attendance
     """
-    for entry in self.entrypoints:
-      # Extract href and any parent info from the entry
-      href = entry.get('href')
+    # Reformat parent data to match what parse_game expects
+    base = {
+      'parent': parent.get('parent', {}),
+      'href': parent.get('href')
+    }
 
-      if not href:
-        self.logger.warning(f"Skipping entry without href: {entry}")
-        continue
-
-      # Prepare base kwargs similar to what extract_game_urls would do
-      cb_kwargs = {
-        'base': {
-          'parent': entry.get('parent', {}),
-          'href': href
-        }
-      }
-
-      # Create request directly to parse_game, bypassing parse() and extract_game_urls()
-      yield self.make_request(
-        href,
-        callback=self.parse_game,
-        cb_kwargs=cb_kwargs
-      )
+    # Delegate to parse_game from parent GamesSpider class
+    yield from self.parse_game(response, base=base)
