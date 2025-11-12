@@ -452,7 +452,8 @@ scrapy crawl games -a parents=competitions.json -a season=2020 > games.json
 **Output Fields:**
 - `type`: "game"
 - `game_id`: Transfermarkt game ID
-- `href`: Game URL path
+- `href`: Game URL path (relative)
+- `seasoned_href`: Full absolute URL to the game page
 - `date_iso`: ISO format date (YYYY-MM-DD) for easy sorting
 - `date_display`: Human-readable date format
 - `kickoff_time`: Match start time (may be None for unscheduled games)
@@ -466,6 +467,7 @@ scrapy crawl games -a parents=competitions.json -a season=2020 > games.json
 {
   "type": "game",
   "href": "/bayern-munich_rb-leipzig/index/spielbericht/4632805",
+  "seasoned_href": "https://www.transfermarkt.co.uk/bayern-munich_rb-leipzig/index/spielbericht/4632805",
   "game_id": 4632805,
   "date_iso": "2025-08-22",
   "date_display": "22/08/25",
@@ -533,16 +535,20 @@ cat competitions.json | scrapy crawl games_urls | grep "Manchester" | head -10 |
 
 **Key Features:**
 - Bypasses competition discovery (parse and extract_game_urls steps)
-- Goes directly to individual game pages
-- Reuses all parsing logic from `games` spider
+- Goes directly to individual game pages via simple parse() method
+- Reuses all parsing logic from `games` spider (parse_game method)
+- Follows same pattern as `players_from_file` spider
 - Ideal for refreshing specific games or targeted scraping
 - Supports both file input and piped input
+- Works seamlessly with output from `games_urls` spider
 
 **Input Format (JSON Lines):**
 ```json
-{"type": "game", "href": "/spielbericht/index/spielbericht/3426901", "game_id": 3426901}
-{"type": "game", "href": "/spielbericht/index/spielbericht/3426916", "game_id": 3426916}
+{"type": "game", "href": "/spielbericht/index/spielbericht/3426901", "seasoned_href": "https://www.transfermarkt.co.uk/...", "game_id": 3426901}
+{"type": "game", "href": "/spielbericht/index/spielbericht/3426916", "seasoned_href": "https://www.transfermarkt.co.uk/...", "game_id": 3426916}
 ```
+
+Note: The `seasoned_href` field is automatically added by `games_urls` spider and used by BaseSpider for URL construction. The `href` field is maintained for compatibility.
 
 **Output Fields:** Identical to `games` spider - extracts comprehensive game data including:
 - Match results and scores (full-time and half-time)
