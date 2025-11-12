@@ -18,6 +18,7 @@ class GamesUrlsSpider(BaseSpider):
     {
       "type": "game",
       "href": "/spielbericht/index/spielbericht/3098550",
+      "seasoned_href": "https://www.transfermarkt.co.uk/spielbericht/index/spielbericht/3098550",
       "game_id": 3098550,
       "date_iso": "2024-09-26",
       "date_display": "Sep 26, 2024",
@@ -68,7 +69,7 @@ class GamesUrlsSpider(BaseSpider):
     @url https://www.transfermarkt.co.uk/premier-league/gesamtspielplan/wettbewerb/GB1/saison_id/2020
     @returns items 330 390
     @cb_kwargs {"base": {"href": "some_href", "type": "league", "parent": {}}}
-    @scrapes type href parent game_id date_iso date_display kickoff_time home_club away_club result
+    @scrapes type href seasoned_href parent game_id date_iso date_display kickoff_time home_club away_club result
     """
     # Find all table rows that contain game links
     game_rows = response.xpath('//table//tbody/tr[.//a[@class="ergebnis-link"]]')
@@ -134,10 +135,14 @@ class GamesUrlsSpider(BaseSpider):
       if result in ['-:-', '', 'vs']:
         result = None
 
+      # Build full absolute URL for the game
+      seasoned_href = f"{self.base_url}{href}"
+
       # Yield game item with all metadata
       yield {
         'type': 'game',
         'href': href,
+        'seasoned_href': seasoned_href,
         'game_id': game_id,
         'date_iso': date_iso,
         'date_display': date_display,
