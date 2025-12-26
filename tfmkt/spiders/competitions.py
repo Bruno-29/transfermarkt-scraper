@@ -93,6 +93,16 @@ class CompetitionsSpider(BaseSpider):
                     'href': '/primavera-1/startseite/wettbewerb/IJ1',
                     'code': 'IJ1',
                     'type': 'youth_league'
+                },
+                {
+                    'href': '/primavera-2-a/startseite/wettbewerb/IJ2A',
+                    'code': 'IJ2A',
+                    'type': 'youth_league'
+                },
+                {
+                    'href': '/primavera-2-b/startseite/wettbewerb/IJ2B',
+                    'code': 'IJ2B',
+                    'type': 'youth_league'
                 }
             ]
             for comp in manual_competitions:
