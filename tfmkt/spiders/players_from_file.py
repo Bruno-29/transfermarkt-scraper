@@ -370,7 +370,7 @@ class PlayersFromFileSpider(BaseSpider):
     if contract_option:
         attributes['contract_option'] = contract_option.strip()
 
-      # --- CONTRACT OPTION ---
+    # --- CONTRACT THERE EXPIRES ---
     attributes['contract_there_expires'] = None
     contract_there_expires = response.xpath("//span[text()='Contract there expires:']/following::span[1]//text()").get()
     if contract_there_expires:
