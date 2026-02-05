@@ -39,6 +39,31 @@ samples/
 └── html/                      # Sample HTML files for testing XPath selectors
 ```
 
+## Spider Synchronization
+
+**IMPORTANT:** The `players.py` and `players_from_file.py` spiders should be kept synchronized with the following understanding:
+
+- **players.py** - Scrapes players from club pages (requires club entrypoint)
+  - Has `parse()` method to collect player URLs from club roster
+  - Has `parse_details()` method to extract player data
+
+- **players_from_file.py** - Scrapes players directly from URLs (file/stdin input)
+  - Has only `parse()` method which is equivalent to `parse_details()` in players.py
+
+**Synchronization Rule:**
+- All data extraction logic (XPath selectors, helper methods, parsing logic) should be **identical** between:
+  - `players.py::parse_details()` and subsequent methods
+  - `players_from_file.py::parse()` and subsequent methods
+- When adding features to one spider, port them to the other unless explicitly noted otherwise
+- Both spiders should produce the same output structure for the same player URL
+
+**Current synchronized features:**
+- Player profile data extraction
+- National team career scraping (totals, competitions, matches)
+- Market value parsing
+- Status detection (active/retired/deceased)
+- Error handling with graceful degradation
+
 ## Spider Input/Output
 
 Spiders expect input via **stdin** or a **parents file** (JSON lines format):
