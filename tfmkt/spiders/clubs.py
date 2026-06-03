@@ -5,6 +5,20 @@ import re
 class ClubsSpider(BaseSpider):
     name = 'clubs'
 
+    def seasonize_entrypoin_href(self, item):
+        """
+        Cup-format competitions served under '/pokalwettbewerb/' (e.g. Brazil's
+        Série C/D, Sub-20, Copinha) do not expose their clubs in the league
+        'startseite' table — the '/plus/' league view is empty for them.
+        Their participating clubs live in the 'teilnehmer' (participants) view,
+        which uses the same 'club'-headed table layout this spider already
+        parses. Route those competitions to '/teilnehmer/'; defer everything
+        else to the base behaviour.
+        """
+        if item.get('type') == 'competition' and '/pokalwettbewerb/' in item['href']:
+            return f"{self.base_url}{item['href']}".replace('/startseite/', '/teilnehmer/')
+        return super().seasonize_entrypoin_href(item)
+
     def parse(self, response, parent):
         """
         Parse competition page. From this page we collect all competition's

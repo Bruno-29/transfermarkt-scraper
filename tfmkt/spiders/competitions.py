@@ -117,6 +117,66 @@ class CompetitionsSpider(BaseSpider):
                         'href': comp['href']
                     }
                     
+        # Add manual competitions for Brazil
+        # These are served under '/pokalwettbewerb/' (cup-format URLs), so the
+        # auto-discovery code regex (/wettbewerb/([^/]+)$) never assigns them a
+        # competition_code; they are also skipped by the tier exclusion list.
+        if base['country_id'] == '26':  # Brazil
+            manual_competitions = [
+                {
+                    'href': '/campeonato-brasileiro-serie-c/startseite/pokalwettbewerb/BRA3',
+                    'code': 'BRA3',
+                    'type': 'third_tier'
+                },
+                {
+                    'href': '/campeonato-brasileiro-serie-d/startseite/pokalwettbewerb/BRA4',
+                    'code': 'BRA4',
+                    'type': 'fourth_tier'
+                },
+                {
+                    'href': '/campeonato-brasileiro-sub-20/startseite/pokalwettbewerb/CB20',
+                    'code': 'CB20',
+                    'type': 'youth_league'
+                },
+                {
+                    'href': '/copa-sao-paulo-de-futebol-junior/startseite/pokalwettbewerb/SPjr',
+                    'code': 'SPjr',
+                    'type': 'domestic_youth_cup'
+                }
+            ]
+            for comp in manual_competitions:
+                competition_key = f"26_{comp['code']}"
+                if competition_key not in self.seen_competitions:
+                    self.seen_competitions.add(competition_key)
+                    yield {
+                        'type': 'competition',
+                        **base,
+                        'competition_code': comp['code'],
+                        'competition_type': comp['type'],
+                        'href': comp['href']
+                    }
+
+        # Add manual competitions for Argentina
+        if base['country_id'] == '9':  # Argentina
+            manual_competitions = [
+                {
+                    'href': '/torneo-proyeccion/startseite/wettbewerb/ARY3',
+                    'code': 'ARY3',
+                    'type': 'reserve_league'
+                }
+            ]
+            for comp in manual_competitions:
+                competition_key = f"9_{comp['code']}"
+                if competition_key not in self.seen_competitions:
+                    self.seen_competitions.add(competition_key)
+                    yield {
+                        'type': 'competition',
+                        **base,
+                        'competition_code': comp['code'],
+                        'competition_type': comp['type'],
+                        'href': comp['href']
+                    }
+
         # Add manual competitions for Israel
         if base['country_id'] == '74':  # Israel
             manual_competitions = [
