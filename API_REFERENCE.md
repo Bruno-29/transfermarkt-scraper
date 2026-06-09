@@ -471,6 +471,7 @@ interface CompetitionInput {
 interface GameWithMetadata {
   type: "game";
   href: string;  // e.g., "/spielbericht/index/spielbericht/3426901"
+  seasoned_href: string;  // Full absolute URL: "https://www.transfermarkt.co.uk/..."
   game_id: number;
   date_iso: string | null;  // ISO format: "YYYY-MM-DD"
   date_display: string | null;  // Human-readable: "22/08/25"
@@ -515,8 +516,8 @@ Variable number of game objects with metadata (typically 330-390 per competition
 
 ### Example Output
 ```json
-{"type": "game", "href": "/bayern-munich_rb-leipzig/index/spielbericht/4632805", "game_id": 4632805, "date_iso": "2025-08-22", "date_display": "22/08/25", "kickoff_time": "7:30 PM", "home_club": {"type": "club", "name": "Bayern Munich", "href": "/fc-bayern-munchen/spielplan/verein/27/saison_id/2025"}, "away_club": {"type": "club", "name": "RB Leipzig", "href": "/rasenballsport-leipzig/spielplan/verein/23826/saison_id/2025"}, "result": "6:0", "parent": {"type": "competition", "competition_code": "GB1"}}
-{"type": "game", "href": "/eintracht-frankfurt_sv-werder-bremen/index/spielbericht/4633376", "game_id": 4633376, "date_iso": "2025-08-23", "date_display": "23/08/25", "kickoff_time": "2:30 PM", "home_club": {"type": "club", "name": "Eintracht Frankfurt", "href": "/eintracht-frankfurt/spielplan/verein/24/saison_id/2025"}, "away_club": {"type": "club", "name": "SV Werder Bremen", "href": "/sv-werder-bremen/spielplan/verein/86/saison_id/2025"}, "result": "4:1", "parent": {"type": "competition", "competition_code": "GB1"}}
+{"type": "game", "href": "/bayern-munich_rb-leipzig/index/spielbericht/4632805", "seasoned_href": "https://www.transfermarkt.co.uk/bayern-munich_rb-leipzig/index/spielbericht/4632805", "game_id": 4632805, "date_iso": "2025-08-22", "date_display": "22/08/25", "kickoff_time": "7:30 PM", "home_club": {"type": "club", "name": "Bayern Munich", "href": "/fc-bayern-munchen/spielplan/verein/27/saison_id/2025"}, "away_club": {"type": "club", "name": "RB Leipzig", "href": "/rasenballsport-leipzig/spielplan/verein/23826/saison_id/2025"}, "result": "6:0", "parent": {"type": "competition", "competition_code": "GB1"}}
+{"type": "game", "href": "/eintracht-frankfurt_sv-werder-bremen/index/spielbericht/4633376", "seasoned_href": "https://www.transfermarkt.co.uk/eintracht-frankfurt_sv-werder-bremen/index/spielbericht/4633376", "game_id": 4633376, "date_iso": "2025-08-23", "date_display": "23/08/25", "kickoff_time": "2:30 PM", "home_club": {"type": "club", "name": "Eintracht Frankfurt", "href": "/eintracht-frankfurt/spielplan/verein/24/saison_id/2025"}, "away_club": {"type": "club", "name": "SV Werder Bremen", "href": "/sv-werder-bremen/spielplan/verein/86/saison_id/2025"}, "result": "4:1", "parent": {"type": "competition", "competition_code": "GB1"}}
 ```
 
 ### Performance Comparison
@@ -539,7 +540,8 @@ scrapy crawl games_by_url -a parents=<games_file>
 ```typescript
 interface GameInput {
   type: "game";
-  href: string;  // Must be /spielbericht/index/spielbericht/<id>
+  href: string;  // Relative URL: /spielbericht/index/spielbericht/<id>
+  seasoned_href?: string;  // Optional full URL (added by games_urls spider)
   game_id?: number;  // Optional
   parent?: object;  // Optional parent tracking
 }
@@ -581,11 +583,13 @@ interface Game {
 - `parents` (required): File or stdin with game objects containing hrefs
 
 ### Behavior
-- **Bypasses competition hierarchy**: Skips `parse()` and `extract_game_urls()` methods
-- **Direct game page scraping**: Creates requests directly to game detail pages
-- **Reuses parsing logic**: Uses same `parse_game()` method as `games` spider
+- **Bypasses competition hierarchy**: No `start_requests()` override, uses simple `parse()` method
+- **Direct game page scraping**: BaseSpider handles Request creation from seasoned_href
+- **Reuses parsing logic**: Delegates to `parse_game()` method from GamesSpider
+- **Follows standard pattern**: Same implementation pattern as `players_from_file` spider
 - **Cherry-picking support**: Ideal for targeted game updates or specific match selection
 - **Parent passthrough**: Maintains any parent object from input for traceability
+- **URL handling**: Uses `seasoned_href` (full URL) if provided, or builds from `href` via BaseSpider
 
 ### Use Cases
 - Refresh specific game data without re-scraping entire competitions
@@ -599,9 +603,11 @@ Variable number of game objects (one per input game)
 
 ### Example Input File
 ```json
-{"type": "game", "href": "/spielbericht/index/spielbericht/3426901", "game_id": 3426901}
-{"type": "game", "href": "/spielbericht/index/spielbericht/3426916", "game_id": 3426916}
+{"type": "game", "href": "/spielbericht/index/spielbericht/3426901", "seasoned_href": "https://www.transfermarkt.co.uk/spielbericht/index/spielbericht/3426901", "game_id": 3426901}
+{"type": "game", "href": "/spielbericht/index/spielbericht/3426916", "seasoned_href": "https://www.transfermarkt.co.uk/spielbericht/index/spielbericht/3426916", "game_id": 3426916}
 ```
+
+Note: The `seasoned_href` field is automatically added by the `games_urls` spider. If using manually created input, you can omit it and BaseSpider will construct the URL from `href`.
 
 ---
 

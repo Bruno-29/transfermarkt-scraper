@@ -1,3 +1,4 @@
+import scrapy
 from tfmkt.spiders.common import BaseSpider
 from scrapy.shell import Response
 from scrapy.shell import inspect_response # required for debugging
@@ -43,6 +44,162 @@ class PlayersFromFileSpider(BaseSpider):
         return death_date_text_alt.split(" (")[0]
       return death_date_text_alt
     return None
+
+  def _parse_stat_value(self, value):
+    """Parse stat value, converting '-' to 0 and handling None."""
+    if value is None:
+      return 0
+    value = self.safe_strip(value)
+    if value == '-' or value == '':
+      return 0
+    try:
+      return int(value)
+    except ValueError:
+      return 0
+
+  def _parse_minutes(self, value):
+    """Parse minutes played, removing apostrophe and thousand separators."""
+    if value is None:
+      return 0
+    value = self.safe_strip(value)
+    if value == '-' or value == '':
+      return 0
+    value = value.replace("'", "").replace(".", "").replace(",", "")
+    try:
+      return int(value)
+    except ValueError:
+      return 0
+
+  def _extract_game_id(self, href):
+    """Extract game ID from match report href."""
+    if href is None:
+      return None
+    try:
+      return int(href.split('/')[-1])
+    except (ValueError, IndexError):
+      return None
+
+  def _get_result_type(self, span_class):
+    """Determine result type from span class."""
+    if span_class is None:
+      return 'draw'
+    if 'greentext' in span_class:
+      return 'win'
+    elif 'redtext' in span_class:
+      return 'loss'
+    return 'draw'
+
+  def _extract_national_team_stats(self, response):
+    """Extract stats from a national career page for one national team.
+
+    Returns dict with totals, competitions, and matches.
+    """
+    # Check if compact stats table exists
+    compact_table = response.xpath("//table[@class='items']")
+
+    if not compact_table:
+      return {'totals': None, 'competitions': [], 'matches': []}
+
+    # Extract totals from tfoot
+    # Note: first td has colspan=2 but is still one element, so indices are shifted
+    totals_row = compact_table.xpath(".//tfoot/tr")
+    totals = {
+      'appearances': self._parse_stat_value(totals_row.xpath("./td[3]/text()").get()),
+      'goals': self._parse_stat_value(totals_row.xpath("./td[4]/text()").get()),
+      'assists': self._parse_stat_value(totals_row.xpath("./td[5]/text()").get()),
+      'yellow_cards': self._parse_stat_value(totals_row.xpath("./td[6]/text()").get()),
+      'second_yellow_cards': self._parse_stat_value(totals_row.xpath("./td[7]/text()").get()),
+      'red_cards': self._parse_stat_value(totals_row.xpath("./td[8]/text()").get()),
+      'minutes_played': self._parse_minutes(totals_row.xpath("./td[9]/text()").get())
+    }
+
+    # Extract competition summaries from tbody
+    competitions = []
+    for row in compact_table.xpath(".//tbody/tr"):
+      comp = {
+        'name': row.xpath("./td[2]/a/@title").get(),
+        'href': row.xpath("./td[2]/a/@href").get(),
+        'icon_url': row.xpath("./td[1]/img/@src").get(),
+        'appearances': self._parse_stat_value(row.xpath("./td[3]//text()").get()),
+        'goals': self._parse_stat_value(row.xpath("./td[4]//text()").get()),
+        'assists': self._parse_stat_value(row.xpath("./td[5]/text()").get()),
+        'yellow_cards': self._parse_stat_value(row.xpath("./td[6]/text()").get()),
+        'second_yellow_cards': self._parse_stat_value(row.xpath("./td[7]/text()").get()),
+        'red_cards': self._parse_stat_value(row.xpath("./td[8]/text()").get()),
+        'minutes_played': self._parse_minutes(row.xpath("./td[9]/text()").get())
+      }
+      competitions.append(comp)
+
+    # Extract detailed match-by-match stats
+    matches = []
+    detailed_table = response.xpath("(//div[@class='responsive-table'])[2]//table/tbody")
+
+    current_competition = None
+    current_competition_href = None
+
+    for row in detailed_table.xpath("./tr"):
+      # Check if this is a competition header row (has colspan="20")
+      header_link = row.xpath("./td[@colspan='20']/a")
+      if header_link:
+        current_competition = self.safe_strip(header_link.xpath("./text()").get())
+        current_competition_href = header_link.xpath("./@href").get()
+        continue
+
+      # Skip rows without a result link
+      result_link = row.xpath(".//a[@class='ergebnis-link']")
+      if not result_link:
+        continue
+
+      # Check if this is an unavailable/injury row
+      row_class = row.xpath("./@class").get() or ''
+      is_unavailable = 'bg_rot_20' in row_class
+
+      # Detailed table structure:
+      # td[1]=empty, td[2]=matchday, td[3]=date, td[4]=venue, td[5]=team(colspan=2),
+      # td[6]=opponent flag, td[7]=opponent name, td[8]=result, td[9]=position,
+      # td[10]=goals, td[11]=assists, td[12]=yellow, td[13]=2nd yellow, td[14]=red, td[15]=minutes
+      match = {
+        'competition': current_competition,
+        'competition_href': current_competition_href,
+        'matchday': self.safe_strip(row.xpath("./td[2]/text()").get()),
+        'date': self.safe_strip(row.xpath("./td[3]/text()").get()),
+        'venue': self.safe_strip(row.xpath("./td[4]/text()").get()),
+        'team': row.xpath("./td[5]//a/@title").get(),
+        'team_href': row.xpath("./td[5]//a/@href").get(),
+        'opponent': row.xpath("./td[7]//a/@title").get(),
+        'opponent_href': row.xpath("./td[7]//a/@href").get(),
+        'game_href': result_link.xpath("./@href").get(),
+        'game_id': self._extract_game_id(result_link.xpath("./@href").get()),
+        'result': self.safe_strip(result_link.xpath(".//span/text()").get()),
+        'result_type': self._get_result_type(result_link.xpath(".//span/@class").get())
+      }
+
+      if is_unavailable:
+        match['unavailable'] = self.safe_strip(
+          row.xpath(".//td[@colspan]//span[@class='verletzt-table']/following-sibling::text()").get()
+        ) or self.safe_strip(row.xpath(".//td[@colspan]//text()[normalize-space() and not(parent::span)]").get())
+        match['position'] = None
+        match['position_full'] = None
+        match['goals'] = 0
+        match['assists'] = 0
+        match['yellow_cards'] = 0
+        match['second_yellow_cards'] = 0
+        match['red_cards'] = 0
+        match['minutes_played'] = 0
+      else:
+        match['unavailable'] = None
+        match['position'] = row.xpath("./td[9]/a/text()").get()
+        match['position_full'] = row.xpath("./td[9]/a/@title").get()
+        match['goals'] = self._parse_stat_value(row.xpath("./td[10]/text()").get())
+        match['assists'] = self._parse_stat_value(row.xpath("./td[11]/text()").get())
+        match['yellow_cards'] = self._parse_stat_value(row.xpath("./td[12]/text()").get())
+        match['second_yellow_cards'] = self._parse_stat_value(row.xpath("./td[13]/text()").get())
+        match['red_cards'] = self._parse_stat_value(row.xpath("./td[14]/text()").get())
+        match['minutes_played'] = self._parse_minutes(row.xpath("./td[15]/text()").get())
+
+      matches.append(match)
+
+    return {'totals': totals, 'competitions': competitions, 'matches': matches}
 
   def parse(self, response, parent):
     """Extract player details from the main page.
@@ -213,10 +370,210 @@ class PlayersFromFileSpider(BaseSpider):
     if contract_option:
         attributes['contract_option'] = contract_option.strip()
 
-      # --- CONTRACT OPTION ---
+    # --- CONTRACT THERE EXPIRES ---
     attributes['contract_there_expires'] = None
     contract_there_expires = response.xpath("//span[text()='Contract there expires:']/following::span[1]//text()").get()
     if contract_there_expires:
         attributes['contract_there_expires'] = contract_there_expires.strip()
 
-    yield attributes
+    # Build national career URL and follow
+    national_career_href = base['href'].replace('/profil/', '/nationalmannschaft/')
+
+    yield response.follow(
+        national_career_href,
+        self.parse_national_career,
+        cb_kwargs={'base': base, 'attributes': attributes},
+        errback=self.errback_national_career
+    )
+
+  def parse_national_career(self, response, base, attributes):
+    """Parse national career page, extract stats for default team, and queue additional teams.
+
+    This method:
+    1. Extracts list of all national teams from dropdown
+    2. Extracts stats for the default (selected) national team
+    3. Queues requests for remaining national teams
+    """
+
+    # Extract all national teams from dropdown
+    # Format: <option value="3375">Spain</option>
+    national_teams = []
+    dropdown_options = response.xpath("//select[@name='verein_id']/option")
+
+    for option in dropdown_options:
+      team_id = option.xpath("./@value").get()
+      team_name = self.safe_strip(option.xpath("./text()").get())
+      is_selected = option.xpath("./@selected").get() is not None
+
+      if team_id and team_name:
+        national_teams.append({
+          'id': team_id,
+          'name': team_name,
+          'is_selected': is_selected
+        })
+
+    # If no national teams found, yield with empty national_career
+    if not national_teams:
+      yield {
+        **base,
+        **attributes,
+        'national_career': []
+      }
+      return
+
+    # Extract stats for the currently displayed (selected) national team
+    selected_team = next((t for t in national_teams if t['is_selected']), national_teams[0])
+    stats = self._extract_national_team_stats(response)
+
+    first_career_entry = {
+      'national_team': {
+        'id': selected_team['id'],
+        'name': selected_team['name'],
+        'href': f"/{selected_team['name'].lower().replace(' ', '-')}/startseite/verein/{selected_team['id']}"
+      },
+      **stats
+    }
+
+    # Get remaining teams that need to be fetched
+    remaining_teams = [t for t in national_teams if not t['is_selected']]
+
+    if not remaining_teams:
+      # Only one national team, yield final result
+      yield {
+        **base,
+        **attributes,
+        'national_career': [first_career_entry]
+      }
+      return
+
+    # Queue requests for remaining teams
+    # Pass accumulated data through cb_kwargs
+    next_team = remaining_teams[0]
+    remaining_after_next = remaining_teams[1:]
+
+    # Build URL for next team
+    base_url = base['href'].replace('/profil/', '/nationalmannschaft/')
+    next_url = f"{base_url}/verein_id/{next_team['id']}"
+
+    yield response.follow(
+      next_url,
+      self.parse_national_team_stats,
+      cb_kwargs={
+        'base': base,
+        'attributes': attributes,
+        'national_career': [first_career_entry],
+        'current_team': next_team,
+        'remaining_teams': remaining_after_next
+      },
+      errback=self.errback_national_team_stats
+    )
+
+  def parse_national_team_stats(self, response, base, attributes, national_career, current_team, remaining_teams):
+    """Parse stats for a specific national team and continue to next or yield final result."""
+
+    # Extract stats for this national team
+    stats = self._extract_national_team_stats(response)
+
+    career_entry = {
+      'national_team': {
+        'id': current_team['id'],
+        'name': current_team['name'],
+        'href': f"/{current_team['name'].lower().replace(' ', '-')}/startseite/verein/{current_team['id']}"
+      },
+      **stats
+    }
+
+    # Add to accumulated national_career list
+    national_career.append(career_entry)
+
+    if not remaining_teams:
+      # All teams processed, yield final result
+      yield {
+        **base,
+        **attributes,
+        'national_career': national_career
+      }
+      return
+
+    # Continue to next team
+    next_team = remaining_teams[0]
+    remaining_after_next = remaining_teams[1:]
+
+    base_url = base['href'].replace('/profil/', '/nationalmannschaft/')
+    next_url = f"{base_url}/verein_id/{next_team['id']}"
+
+    yield response.follow(
+      next_url,
+      self.parse_national_team_stats,
+      cb_kwargs={
+        'base': base,
+        'attributes': attributes,
+        'national_career': national_career,
+        'current_team': next_team,
+        'remaining_teams': remaining_after_next
+      },
+      errback=self.errback_national_team_stats
+    )
+
+  def errback_national_career(self, failure):
+    """Handle failures fetching initial national career page."""
+    request = failure.request
+    base = request.cb_kwargs.get('base', {})
+    attributes = request.cb_kwargs.get('attributes', {})
+
+    self.logger.warning(
+      "Failed to fetch national career for %s: %s",
+      base.get('href'),
+      failure.value
+    )
+
+    yield {
+      **base,
+      **attributes,
+      'national_career': []
+    }
+
+  def errback_national_team_stats(self, failure):
+    """Handle failures fetching a specific national team's stats."""
+    request = failure.request
+    base = request.cb_kwargs.get('base', {})
+    attributes = request.cb_kwargs.get('attributes', {})
+    national_career = request.cb_kwargs.get('national_career', [])
+    current_team = request.cb_kwargs.get('current_team', {})
+    remaining_teams = request.cb_kwargs.get('remaining_teams', [])
+
+    self.logger.warning(
+      "Failed to fetch national team stats for %s (team %s): %s",
+      base.get('href'),
+      current_team.get('name'),
+      failure.value
+    )
+
+    # Continue with remaining teams or yield what we have
+    if not remaining_teams:
+      yield {
+        **base,
+        **attributes,
+        'national_career': national_career
+      }
+      return
+
+    # Try next team
+    next_team = remaining_teams[0]
+    remaining_after_next = remaining_teams[1:]
+
+    base_url = base['href'].replace('/profil/', '/nationalmannschaft/')
+    next_url = f"{base_url}/verein_id/{next_team['id']}"
+
+    yield scrapy.Request(
+      self.base_url + next_url,
+      callback=self.parse_national_team_stats,
+      cb_kwargs={
+        'base': base,
+        'attributes': attributes,
+        'national_career': national_career,
+        'current_team': next_team,
+        'remaining_teams': remaining_after_next
+      },
+      errback=self.errback_national_team_stats
+    )
